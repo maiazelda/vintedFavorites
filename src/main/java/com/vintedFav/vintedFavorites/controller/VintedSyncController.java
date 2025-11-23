@@ -142,7 +142,7 @@ public class VintedSyncController {
         }
 
         return vintedApiService.fetchFavorites(page, perPage)
-                .map(favorites -> ResponseEntity.ok().body(favorites))
+                .<ResponseEntity<?>>map(favorites -> ResponseEntity.ok().body(favorites))
                 .onErrorResume(e -> {
                     Map<String, Object> error = new HashMap<>();
                     error.put("success", false);
