@@ -50,6 +50,12 @@ public class FavoriteService {
         return favoriteRepository.findBySold(sold);
     }
 
+    public List<Favorite> getFavoritesByVintedId(String vintedId) {
+        return favoriteRepository.findByVintedId(vintedId)
+                .map(List::of)
+                .orElse(List.of());
+    }
+
     public List<Favorite> filterFavorites(String brand, String gender, String category, Boolean sold) {
         List<Favorite> favorites = favoriteRepository.findAll();
 
