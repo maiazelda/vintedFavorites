@@ -32,6 +32,9 @@ public class VintedApiService {
     @Value("${vinted.api.base-url:https://www.vinted.fr}")
     private String baseUrl;
 
+    @Value("${vinted.api.user-id:}")
+    private String userId;
+
     @Value("${vinted.api.user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36}")
     private String userAgent;
 
@@ -43,7 +46,12 @@ public class VintedApiService {
             return Mono.error(new RuntimeException("Cookies non configurés"));
         }
 
-        String url = baseUrl + "/api/v2/users/current/favourites?page=" + page + "&per_page=" + perPage;
+        if (userId == null || userId.isEmpty()) {
+            log.error("User ID non configuré. Veuillez définir vinted.api.user-id dans application.properties");
+            return Mono.error(new RuntimeException("User ID non configuré"));
+        }
+
+        String url = baseUrl + "/api/v2/users/" + userId + "/items/favourites?page=" + page + "&per_page=" + perPage;
         log.info("Appel API Vinted: {}", url);
 
         return webClient.get()
