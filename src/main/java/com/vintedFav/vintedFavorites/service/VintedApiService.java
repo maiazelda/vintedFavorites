@@ -200,99 +200,73 @@ public class VintedApiService {
             return null;
         }
 
-        // Log pour debug la structure d'un item
-        log.debug("Item JSON keys: {}", item.fieldNames().hasNext() ?
-                java.util.stream.StreamSupport.stream(
-                        java.util.Spliterators.spliteratorUnknownSize(item.fieldNames(), 0), false)
-                        .collect(java.util.stream.Collectors.joining(", ")) : "empty");
-
         Favorite favorite = new Favorite();
 
-        // ID - essayer plusieurs chemins
-        favorite.setVintedId(getFirstNonNull(item, "id", "item_id"));
+        // ID (peut être un nombre)
+        JsonNode idNode = item.path("id");
+        if (!idNode.isMissingNode()) {
+            favorite.setVintedId(idNode.isNumber() ? String.valueOf(idNode.asLong()) : idNode.asText());
+        }
 
         // Titre
-        favorite.setTitle(getFirstNonNull(item, "title", "name"));
+        favorite.setTitle(getTextValue(item, "title"));
 
-        // Brand - essayer plusieurs structures
-        String brand = getTextValue(item.path("brand_dto"), "title");
-        if (brand == null) brand = getTextValue(item.path("brand"), "title");
-        if (brand == null) brand = getFirstNonNull(item, "brand", "brand_title");
-        favorite.setBrand(brand);
+        // Brand - le champ est "brand_title" directement
+        favorite.setBrand(getTextValue(item, "brand_title"));
 
-        // Prix - essayer plusieurs chemins et formats
-        Double price = getDoubleValue(item, "price");
-        if (price == null) price = getDoubleValue(item.path("price"), "amount");
-        if (price == null) price = getDoubleValue(item, "total_item_price");
-        favorite.setPrice(price);
-
-        // Image URL - essayer plusieurs structures
-        String imageUrl = null;
-        JsonNode photos = item.path("photos");
-        if (!photos.isMissingNode() && photos.isArray() && photos.size() > 0) {
-            imageUrl = getTextValue(photos.get(0), "url");
-            if (imageUrl == null) imageUrl = getTextValue(photos.get(0), "full_size_url");
-            if (imageUrl == null) imageUrl = getTextValue(photos.get(0), "thumbnails");
-        }
-        if (imageUrl == null) {
-            JsonNode photo = item.path("photo");
-            if (!photo.isMissingNode()) {
-                imageUrl = getTextValue(photo, "url");
-                if (imageUrl == null) imageUrl = getTextValue(photo, "full_size_url");
+        // Prix - nested object avec "amount"
+        JsonNode priceNode = item.path("price");
+        if (!priceNode.isMissingNode()) {
+            String priceStr = getTextValue(priceNode, "amount");
+            if (priceStr != null) {
+                try {
+                    favorite.setPrice(Double.parseDouble(priceStr.replace(",", ".")));
+                } catch (NumberFormatException e) {
+                    log.warn("Impossible de parser le prix: {}", priceStr);
+                }
             }
         }
-        if (imageUrl == null) imageUrl = getFirstNonNull(item, "image_url", "thumbnail_url", "photo_url");
-        favorite.setImageUrl(imageUrl);
+
+        // Image URL - le champ est "photo" (pas "photos")
+        JsonNode photo = item.path("photo");
+        if (!photo.isMissingNode()) {
+            String imageUrl = getTextValue(photo, "url");
+            if (imageUrl == null) {
+                imageUrl = getTextValue(photo, "full_size_url");
+            }
+            favorite.setImageUrl(imageUrl);
+        }
 
         // URL du produit
-        favorite.setProductUrl(getFirstNonNull(item, "url", "path", "item_url"));
+        favorite.setProductUrl(getTextValue(item, "url"));
 
-        // Vendu
-        favorite.setSold(item.path("is_closed").asBoolean(false) ||
-                        item.path("is_sold").asBoolean(false) ||
-                        "sold".equalsIgnoreCase(getFirstNonNull(item, "status")));
+        // Vendu (is_closed)
+        favorite.setSold(item.path("is_closed").asBoolean(false));
 
         // Vendeur
-        String seller = getTextValue(item.path("user"), "login");
-        if (seller == null) seller = getTextValue(item.path("user"), "username");
-        if (seller == null) seller = getTextValue(item.path("seller"), "login");
-        favorite.setSellerName(seller);
+        JsonNode user = item.path("user");
+        if (!user.isMissingNode()) {
+            favorite.setSellerName(getTextValue(user, "login"));
+        }
 
         // Taille
-        favorite.setSize(getFirstNonNull(item, "size_title", "size", "size_name"));
+        String size = getTextValue(item, "size_title");
+        if (size == null) size = getTextValue(item, "size");
+        favorite.setSize(size);
 
-        // État/Condition
-        favorite.setCondition(getFirstNonNull(item, "status", "condition", "item_status"));
+        // État/Condition (le champ "status" contient l'état)
+        favorite.setCondition(getTextValue(item, "status"));
 
-        // Catégorie - essayer plusieurs structures
-        String category = getTextValue(item.path("catalog_dto"), "title");
-        if (category == null) category = getTextValue(item.path("catalog"), "title");
-        if (category == null) category = getFirstNonNull(item, "category", "catalog_title", "category_name");
-        favorite.setCategory(category);
-
-        // Genre
-        String gender = getFirstNonNull(item, "gender", "gender_title");
-        if (gender == null) {
-            JsonNode catalogDto = item.path("catalog_dto");
-            if (!catalogDto.isMissingNode()) {
-                gender = getFirstNonNull(catalogDto, "gender", "gender_title");
-            }
-        }
-        favorite.setGender(gender);
-
-        // Date de publication - essayer plusieurs formats
-        long createdTimestamp = item.path("created_at_ts").asLong(0);
-        if (createdTimestamp == 0) createdTimestamp = item.path("created_at").asLong(0);
-        if (createdTimestamp == 0) createdTimestamp = item.path("updated_at_ts").asLong(0);
-        if (createdTimestamp > 0) {
-            favorite.setListedDate(LocalDateTime.ofInstant(
-                    Instant.ofEpochSecond(createdTimestamp),
-                    ZoneId.systemDefault()));
+        // Pour category et gender, on peut essayer d'extraire depuis item_box ou autres
+        JsonNode itemBox = item.path("item_box");
+        if (!itemBox.isMissingNode()) {
+            // On pourrait parser "second_line" pour extraire des infos
+            String firstLine = getTextValue(itemBox, "first_line"); // souvent la marque
         }
 
-        log.debug("Favori mappé: title={}, brand={}, price={}, imageUrl={}",
-                favorite.getTitle(), favorite.getBrand(), favorite.getPrice(),
-                favorite.getImageUrl() != null ? "présent" : "null");
+        log.debug("Favori mappé: id={}, title={}, brand={}, price={}, imageUrl={}",
+                favorite.getVintedId(), favorite.getTitle(), favorite.getBrand(),
+                favorite.getPrice(), favorite.getImageUrl() != null ? "présent" : "null");
 
         return favorite;
     }
