@@ -36,20 +36,36 @@ public class VintedSyncController {
         Map<String, Object> response = new HashMap<>();
 
         try {
+            int cookieCount = 0;
+
             if (request.getCookies() != null && !request.getCookies().isEmpty()) {
                 cookieService.saveAllCookies(request.getCookies(), "vinted.fr");
-                response.put("success", true);
-                response.put("message", "Cookies mis à jour avec succès");
-                response.put("count", request.getCookies().size());
+                cookieCount = request.getCookies().size();
             } else if (request.getRawCookies() != null && !request.getRawCookies().isEmpty()) {
                 Map<String, String> parsedCookies = parseRawCookies(request.getRawCookies());
                 cookieService.saveAllCookies(parsedCookies, "vinted.fr");
+                cookieCount = parsedCookies.size();
+            }
+
+            // Sauvegarder les headers spéciaux si fournis
+            if (request.getCsrfToken() != null && !request.getCsrfToken().isEmpty()) {
+                cookieService.saveCsrfToken(request.getCsrfToken());
+                log.info("X-Csrf-Token configuré");
+            }
+            if (request.getAnonId() != null && !request.getAnonId().isEmpty()) {
+                cookieService.saveAnonId(request.getAnonId());
+                log.info("X-Anon-Id configuré");
+            }
+
+            if (cookieCount > 0 || request.getCsrfToken() != null || request.getAnonId() != null) {
                 response.put("success", true);
-                response.put("message", "Cookies mis à jour avec succès");
-                response.put("count", parsedCookies.size());
+                response.put("message", "Configuration mise à jour avec succès");
+                response.put("cookieCount", cookieCount);
+                response.put("csrfTokenSet", request.getCsrfToken() != null && !request.getCsrfToken().isEmpty());
+                response.put("anonIdSet", request.getAnonId() != null && !request.getAnonId().isEmpty());
             } else {
                 response.put("success", false);
-                response.put("message", "Aucun cookie fourni");
+                response.put("message", "Aucune donnée fournie");
             }
         } catch (Exception e) {
             log.error("Erreur lors de la mise à jour des cookies: {}", e.getMessage());

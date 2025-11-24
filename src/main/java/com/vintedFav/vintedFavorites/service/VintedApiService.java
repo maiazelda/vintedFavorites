@@ -74,7 +74,11 @@ public class VintedApiService {
         String url = baseUrl + "/api/v2/users/" + userId + "/items/favourites?page=" + page + "&per_page=" + perPage;
         log.info("Appel API Vinted: {}", url);
 
-        return webClient.get()
+        // Récupérer les headers supplémentaires
+        String csrfToken = cookieService.getCsrfToken();
+        String anonId = cookieService.getAnonId();
+
+        var requestSpec = webClient.get()
                 .uri(url)
                 .header(HttpHeaders.COOKIE, cookieHeader)
                 .header(HttpHeaders.USER_AGENT, userAgent)
@@ -85,9 +89,20 @@ public class VintedApiService {
                 .header("Sec-Fetch-Dest", "empty")
                 .header("Sec-Fetch-Mode", "cors")
                 .header("Sec-Fetch-Site", "same-origin")
-                .header("Sec-Ch-Ua", "\"Google Chrome\";v=\"120\", \"Chromium\";v=\"120\", \"Not_A Brand\";v=\"24\"")
+                .header("Sec-Ch-Ua", "\"Google Chrome\";v=\"142\", \"Chromium\";v=\"142\", \"Not_A Brand\";v=\"99\"")
                 .header("Sec-Ch-Ua-Mobile", "?0")
-                .header("Sec-Ch-Ua-Platform", "\"Windows\"")
+                .header("Sec-Ch-Ua-Platform", "\"Windows\"");
+
+        // Ajouter X-Csrf-Token si disponible
+        if (csrfToken != null && !csrfToken.isEmpty()) {
+            requestSpec = requestSpec.header("X-Csrf-Token", csrfToken);
+        }
+        // Ajouter X-Anon-Id si disponible
+        if (anonId != null && !anonId.isEmpty()) {
+            requestSpec = requestSpec.header("X-Anon-Id", anonId);
+        }
+
+        return requestSpec
                 .exchangeToMono(response -> handleResponse(response))
                 .map(this::parseFavoritesResponse)
                 .onErrorResume(e -> {
@@ -121,17 +136,35 @@ public class VintedApiService {
         String url = baseUrl + "/api/v2/items/" + itemId;
         log.debug("Récupération des détails de l'article: {}", itemId);
 
-        return webClient.get()
+        // Récupérer les headers supplémentaires
+        String csrfToken = cookieService.getCsrfToken();
+        String anonId = cookieService.getAnonId();
+
+        var requestSpec = webClient.get()
                 .uri(url)
                 .header(HttpHeaders.COOKIE, cookieHeader)
                 .header(HttpHeaders.USER_AGENT, userAgent)
                 .header(HttpHeaders.ACCEPT, "application/json, text/plain, */*")
                 .header("Accept-Language", "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7")
-                .header(HttpHeaders.REFERER, "https://www.vinted.fr/")
+                .header(HttpHeaders.REFERER, "https://www.vinted.fr/items/" + itemId)
                 .header(HttpHeaders.ORIGIN, "https://www.vinted.fr")
                 .header("Sec-Fetch-Dest", "empty")
                 .header("Sec-Fetch-Mode", "cors")
                 .header("Sec-Fetch-Site", "same-origin")
+                .header("Sec-Ch-Ua", "\"Google Chrome\";v=\"142\", \"Chromium\";v=\"142\", \"Not_A Brand\";v=\"99\"")
+                .header("Sec-Ch-Ua-Mobile", "?0")
+                .header("Sec-Ch-Ua-Platform", "\"Windows\"");
+
+        // Ajouter X-Csrf-Token si disponible
+        if (csrfToken != null && !csrfToken.isEmpty()) {
+            requestSpec = requestSpec.header("X-Csrf-Token", csrfToken);
+        }
+        // Ajouter X-Anon-Id si disponible
+        if (anonId != null && !anonId.isEmpty()) {
+            requestSpec = requestSpec.header("X-Anon-Id", anonId);
+        }
+
+        return requestSpec
                 .exchangeToMono(response -> handleItemDetailsResponse(response, itemId))
                 .flatMap(body -> {
                     if (body == null) {

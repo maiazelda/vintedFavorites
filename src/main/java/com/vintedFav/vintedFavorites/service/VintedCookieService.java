@@ -20,6 +20,10 @@ public class VintedCookieService {
 
     private final VintedCookieRepository cookieRepository;
 
+    // Noms réservés pour stocker les headers spéciaux
+    private static final String CSRF_TOKEN_KEY = "__x_csrf_token";
+    private static final String ANON_ID_KEY = "__x_anon_id";
+
     public List<VintedCookie> getAllActiveCookies() {
         return cookieRepository.findByIsActiveTrue()
                 .stream()
@@ -157,5 +161,47 @@ public class VintedCookieService {
         return activeCookies.stream()
                 .anyMatch(cookie -> cookie.getCookieName().equals("_vinted_fr_session")
                         || cookie.getCookieName().equals("access_token_web"));
+    }
+
+    /**
+     * Sauvegarde le X-Csrf-Token
+     */
+    @Transactional
+    public void saveCsrfToken(String csrfToken) {
+        if (csrfToken != null && !csrfToken.isEmpty()) {
+            saveCookie(CSRF_TOKEN_KEY, csrfToken, "vinted.fr", null);
+            log.info("X-Csrf-Token sauvegardé");
+        }
+    }
+
+    /**
+     * Récupère le X-Csrf-Token
+     */
+    public String getCsrfToken() {
+        return getCookieByName(CSRF_TOKEN_KEY)
+                .filter(c -> c.getIsActive() && !c.isExpired())
+                .map(VintedCookie::getCookieValue)
+                .orElse(null);
+    }
+
+    /**
+     * Sauvegarde le X-Anon-Id
+     */
+    @Transactional
+    public void saveAnonId(String anonId) {
+        if (anonId != null && !anonId.isEmpty()) {
+            saveCookie(ANON_ID_KEY, anonId, "vinted.fr", null);
+            log.info("X-Anon-Id sauvegardé");
+        }
+    }
+
+    /**
+     * Récupère le X-Anon-Id
+     */
+    public String getAnonId() {
+        return getCookieByName(ANON_ID_KEY)
+                .filter(c -> c.getIsActive() && !c.isExpired())
+                .map(VintedCookie::getCookieValue)
+                .orElse(null);
     }
 }
