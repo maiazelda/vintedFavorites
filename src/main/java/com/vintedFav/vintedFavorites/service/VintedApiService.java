@@ -78,7 +78,6 @@ public class VintedApiService {
                 .header(HttpHeaders.USER_AGENT, userAgent)
                 .header(HttpHeaders.ACCEPT, "application/json, text/plain, */*")
                 .header("Accept-Language", "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7")
-                .header("Accept-Encoding", "gzip, deflate, br")
                 .header(HttpHeaders.REFERER, "https://www.vinted.fr/")
                 .header(HttpHeaders.ORIGIN, "https://www.vinted.fr")
                 .header("Sec-Fetch-Dest", "empty")
