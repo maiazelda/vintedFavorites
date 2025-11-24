@@ -63,6 +63,29 @@ public class VintedCookieService {
     }
 
     @Transactional
+    public void saveAllCookiesFromRawString(String rawCookies, String domain) {
+        if (rawCookies == null || rawCookies.isEmpty()) {
+            return;
+        }
+
+        String[] pairs = rawCookies.split(";");
+        int count = 0;
+
+        for (String pair : pairs) {
+            String trimmed = pair.trim();
+            int equalIndex = trimmed.indexOf('=');
+            if (equalIndex > 0) {
+                String name = trimmed.substring(0, equalIndex).trim();
+                String value = trimmed.substring(equalIndex + 1).trim();
+                saveCookie(name, value, domain, null);
+                count++;
+            }
+        }
+
+        log.info("Chargé {} cookies depuis la chaîne brute", count);
+    }
+
+    @Transactional
     public void updateCookiesFromResponse(String setCookieHeader) {
         if (setCookieHeader == null || setCookieHeader.isEmpty()) {
             return;
