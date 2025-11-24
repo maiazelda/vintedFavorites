@@ -20,7 +20,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class VintedApiService {
 
@@ -28,6 +27,18 @@ public class VintedApiService {
     private final VintedCookieService cookieService;
     private final FavoriteService favoriteService;
     private final ObjectMapper objectMapper;
+
+    @org.springframework.context.annotation.Lazy
+    @org.springframework.beans.factory.annotation.Autowired
+    private VintedAuthService authService;
+
+    public VintedApiService(WebClient webClient, VintedCookieService cookieService,
+                           FavoriteService favoriteService, ObjectMapper objectMapper) {
+        this.webClient = webClient;
+        this.cookieService = cookieService;
+        this.favoriteService = favoriteService;
+        this.objectMapper = objectMapper;
+    }
 
     @Value("${vinted.api.base-url:https://www.vinted.fr}")
     private String baseUrl;
@@ -39,6 +50,13 @@ public class VintedApiService {
     private String userAgent;
 
     public Mono<List<Favorite>> fetchFavorites(int page, int perPage) {
+        // Vérifier d'abord si le token est expiré et le rafraîchir si nécessaire
+        return authService.ensureValidToken()
+                .flatMap(valid -> fetchFavoritesInternal(page, perPage, false));
+    }
+
+    private Mono<List<Favorite>> fetchFavoritesInternal(int page, int perPage, boolean isRetry) {
+        // Récupérer les cookies frais après un éventuel refresh
         String cookieHeader = cookieService.buildCookieHeader();
 
         if (cookieHeader.isEmpty()) {
@@ -69,8 +87,22 @@ public class VintedApiService {
                 .header("Sec-Ch-Ua", "\"Google Chrome\";v=\"120\", \"Chromium\";v=\"120\", \"Not_A Brand\";v=\"24\"")
                 .header("Sec-Ch-Ua-Mobile", "?0")
                 .header("Sec-Ch-Ua-Platform", "\"Windows\"")
-                .exchangeToMono(this::handleResponse)
-                .map(this::parseFavoritesResponse);
+                .exchangeToMono(response -> handleResponse(response))
+                .map(this::parseFavoritesResponse)
+                .onErrorResume(e -> {
+                    if (!isRetry && e.getMessage() != null && e.getMessage().contains("401")) {
+                        log.warn("Erreur 401 - Tentative de refresh token...");
+                        return authService.refreshAccessToken()
+                                .flatMap(success -> {
+                                    if (success) {
+                                        log.info("Token rafraîchi, nouvelle tentative...");
+                                        return fetchFavoritesInternal(page, perPage, true);
+                                    }
+                                    return Mono.error(e);
+                                });
+                    }
+                    return Mono.error(e);
+                });
     }
 
     public Mono<Favorite> fetchItemDetails(String itemId) {
@@ -102,8 +134,9 @@ public class VintedApiService {
         if (response.statusCode().is2xxSuccessful()) {
             return response.bodyToMono(String.class);
         } else if (response.statusCode().value() == 401 || response.statusCode().value() == 403) {
-            log.error("Session expirée ou non autorisée. Veuillez mettre à jour les cookies.");
-            return Mono.error(new RuntimeException("Session expirée - cookies à mettre à jour"));
+            int statusCode = response.statusCode().value();
+            log.error("Session expirée ou non autorisée ({}). Veuillez mettre à jour les cookies.", statusCode);
+            return Mono.error(new RuntimeException("Erreur " + statusCode + " - Session expirée"));
         } else {
             log.error("Erreur API Vinted: {}", response.statusCode());
             return response.bodyToMono(String.class)
