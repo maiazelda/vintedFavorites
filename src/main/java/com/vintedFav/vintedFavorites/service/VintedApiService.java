@@ -132,8 +132,14 @@ public class VintedApiService {
                 .header("Sec-Fetch-Dest", "empty")
                 .header("Sec-Fetch-Mode", "cors")
                 .header("Sec-Fetch-Site", "same-origin")
-                .exchangeToMono(this::handleResponse)
-                .map(this::parseItemResponse)
+                .exchangeToMono(response -> handleItemDetailsResponse(response, itemId))
+                .flatMap(body -> {
+                    if (body == null) {
+                        return Mono.empty(); // Article non trouvé (404)
+                    }
+                    Favorite favorite = parseItemResponse(body);
+                    return favorite != null ? Mono.just(favorite) : Mono.empty();
+                })
                 .onErrorResume(e -> {
                     if (!isRetry && e.getMessage() != null && e.getMessage().contains("401")) {
                         log.warn("Erreur 401 sur item {} - Tentative de refresh token...", itemId);
@@ -142,11 +148,37 @@ public class VintedApiService {
                                     if (success) {
                                         return fetchItemDetailsInternal(itemId, true);
                                     }
-                                    return Mono.error(e);
+                                    return Mono.empty();
                                 });
                     }
-                    return Mono.error(e);
+                    log.debug("Erreur sur item {}: {}", itemId, e.getMessage());
+                    return Mono.empty();
                 });
+    }
+
+    /**
+     * Handler spécifique pour les détails d'articles - gère les 404 gracieusement
+     */
+    private Mono<String> handleItemDetailsResponse(ClientResponse response, String itemId) {
+        // Gérer les cookies de la réponse
+        response.headers().header(HttpHeaders.SET_COOKIE).forEach(setCookie -> {
+            log.debug("Cookie reçu: {}", setCookie);
+            cookieService.updateCookiesFromResponse(setCookie);
+        });
+
+        if (response.statusCode().is2xxSuccessful()) {
+            return response.bodyToMono(String.class);
+        } else if (response.statusCode().value() == 404) {
+            // Article supprimé ou non disponible - c'est normal, on ignore
+            log.debug("Article {} non trouvé (404) - probablement supprimé ou vendu", itemId);
+            return Mono.just(""); // Retourner une chaîne vide pour indiquer "non trouvé"
+        } else if (response.statusCode().value() == 401 || response.statusCode().value() == 403) {
+            int statusCode = response.statusCode().value();
+            return Mono.error(new RuntimeException("Erreur " + statusCode + " - Session expirée"));
+        } else {
+            log.warn("Erreur API pour article {}: {}", itemId, response.statusCode());
+            return Mono.just(""); // Ignorer les autres erreurs
+        }
     }
 
     private Mono<String> handleResponse(ClientResponse response) {
@@ -211,19 +243,31 @@ public class VintedApiService {
     }
 
     private Favorite parseItemResponse(String responseBody) {
+        // Réponse vide = article non trouvé
+        if (responseBody == null || responseBody.isEmpty()) {
+            return null;
+        }
+
         try {
             JsonNode root = objectMapper.readTree(responseBody);
             JsonNode item = root.path("item");
+
+            // Vérifier que la réponse contient bien un item
+            if (item.isMissingNode()) {
+                log.debug("Réponse sans 'item' - structure inattendue");
+                return null;
+            }
+
             Favorite favorite = mapJsonToFavorite(item);
 
             // Enrichir avec les champs supplémentaires disponibles dans le détail
-            if (favorite != null && !item.isMissingNode()) {
+            if (favorite != null) {
                 enrichFavoriteWithDetails(favorite, item);
             }
 
             return favorite;
         } catch (Exception e) {
-            log.error("Erreur lors du parsing de l'article: {}", e.getMessage());
+            log.debug("Erreur lors du parsing de l'article: {}", e.getMessage());
             return null;
         }
     }
@@ -475,23 +519,26 @@ public class VintedApiService {
         }
 
         Favorite favorite = favorites.get(currentIndex);
+        log.debug("Enrichissement {}/{}: {}", currentIndex + 1, favorites.size(), favorite.getTitle());
 
         return fetchItemDetails(favorite.getVintedId())
-                .delayElement(Duration.ofMillis(500)) // Délai pour éviter le rate limiting
+                .delaySubscription(Duration.ofMillis(300)) // Délai avant l'appel pour éviter le rate limiting
                 .doOnNext(details -> {
-                    if (details != null) {
-                        // Mettre à jour le favori avec les détails
-                        favorite.setCategory(details.getCategory());
-                        favorite.setGender(details.getGender());
-                        favorite.setListedDate(details.getListedDate());
-                        favoriteService.saveFavorite(favorite);
-                        enrichedCount.incrementAndGet();
-                        log.debug("Favori enrichi: {} - category={}, gender={}, listedDate={}",
-                                favorite.getTitle(), details.getCategory(), details.getGender(), details.getListedDate());
-                    }
+                    // Mettre à jour le favori avec les détails
+                    favorite.setCategory(details.getCategory());
+                    favorite.setGender(details.getGender());
+                    favorite.setListedDate(details.getListedDate());
+                    favoriteService.saveFavorite(favorite);
+                    enrichedCount.incrementAndGet();
+                    log.info("Favori enrichi: {} - category={}, gender={}, listedDate={}",
+                            favorite.getTitle(), details.getCategory(), details.getGender(), details.getListedDate());
                 })
+                .switchIfEmpty(Mono.defer(() -> {
+                    log.debug("Article {} non disponible pour enrichissement", favorite.getTitle());
+                    return Mono.empty();
+                }))
                 .onErrorResume(e -> {
-                    log.warn("Impossible d'enrichir le favori {}: {}", favorite.getTitle(), e.getMessage());
+                    log.debug("Erreur enrichissement {}: {}", favorite.getTitle(), e.getMessage());
                     return Mono.empty();
                 })
                 .then(Mono.defer(() -> enrichNextFavorite(favorites, index, enrichedCount)));
