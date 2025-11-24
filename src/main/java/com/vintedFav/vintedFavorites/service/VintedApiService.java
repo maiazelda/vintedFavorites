@@ -148,10 +148,27 @@ public class VintedApiService {
 
         try {
             JsonNode root = objectMapper.readTree(responseBody);
+
+            // Log pour debug - afficher la structure de la réponse
+            log.debug("Structure de la réponse: {}", root.toString().substring(0, Math.min(500, root.toString().length())));
+
+            // L'API favorites peut retourner les items dans différents chemins
             JsonNode items = root.path("items");
+            if (items.isMissingNode() || !items.isArray()) {
+                items = root.path("favourite_items");
+            }
+            if (items.isMissingNode() || !items.isArray()) {
+                items = root.path("item_favourites");
+            }
 
             if (items.isArray()) {
-                for (JsonNode item : items) {
+                for (JsonNode itemWrapper : items) {
+                    // Les favoris peuvent être wrappés dans un objet "item"
+                    JsonNode item = itemWrapper.path("item");
+                    if (item.isMissingNode()) {
+                        item = itemWrapper;
+                    }
+
                     Favorite favorite = mapJsonToFavorite(item);
                     if (favorite != null) {
                         favorites.add(favorite);
@@ -161,6 +178,7 @@ public class VintedApiService {
             log.info("Nombre de favoris récupérés: {}", favorites.size());
         } catch (Exception e) {
             log.error("Erreur lors du parsing de la réponse: {}", e.getMessage());
+            log.debug("Réponse brute: {}", responseBody);
         }
 
         return favorites;
@@ -182,40 +200,111 @@ public class VintedApiService {
             return null;
         }
 
+        // Log pour debug la structure d'un item
+        log.debug("Item JSON keys: {}", item.fieldNames().hasNext() ?
+                java.util.stream.StreamSupport.stream(
+                        java.util.Spliterators.spliteratorUnknownSize(item.fieldNames(), 0), false)
+                        .collect(java.util.stream.Collectors.joining(", ")) : "empty");
+
         Favorite favorite = new Favorite();
 
-        favorite.setVintedId(getTextValue(item, "id"));
-        favorite.setTitle(getTextValue(item, "title"));
-        favorite.setBrand(getTextValue(item.path("brand_dto"), "title"));
-        favorite.setPrice(getDoubleValue(item, "price"));
+        // ID - essayer plusieurs chemins
+        favorite.setVintedId(getFirstNonNull(item, "id", "item_id"));
 
-        // Image URL
+        // Titre
+        favorite.setTitle(getFirstNonNull(item, "title", "name"));
+
+        // Brand - essayer plusieurs structures
+        String brand = getTextValue(item.path("brand_dto"), "title");
+        if (brand == null) brand = getTextValue(item.path("brand"), "title");
+        if (brand == null) brand = getFirstNonNull(item, "brand", "brand_title");
+        favorite.setBrand(brand);
+
+        // Prix - essayer plusieurs chemins et formats
+        Double price = getDoubleValue(item, "price");
+        if (price == null) price = getDoubleValue(item.path("price"), "amount");
+        if (price == null) price = getDoubleValue(item, "total_item_price");
+        favorite.setPrice(price);
+
+        // Image URL - essayer plusieurs structures
+        String imageUrl = null;
         JsonNode photos = item.path("photos");
-        if (photos.isArray() && photos.size() > 0) {
-            favorite.setImageUrl(getTextValue(photos.get(0), "url"));
+        if (!photos.isMissingNode() && photos.isArray() && photos.size() > 0) {
+            imageUrl = getTextValue(photos.get(0), "url");
+            if (imageUrl == null) imageUrl = getTextValue(photos.get(0), "full_size_url");
+            if (imageUrl == null) imageUrl = getTextValue(photos.get(0), "thumbnails");
         }
-
-        favorite.setProductUrl(getTextValue(item, "url"));
-        favorite.setSold(item.path("is_closed").asBoolean(false));
-        favorite.setSellerName(getTextValue(item.path("user"), "login"));
-        favorite.setSize(getTextValue(item, "size_title"));
-        favorite.setCondition(getTextValue(item, "status"));
-
-        // Catégorie
-        JsonNode catalog = item.path("catalog_dto");
-        if (!catalog.isMissingNode()) {
-            favorite.setCategory(getTextValue(catalog, "title"));
+        if (imageUrl == null) {
+            JsonNode photo = item.path("photo");
+            if (!photo.isMissingNode()) {
+                imageUrl = getTextValue(photo, "url");
+                if (imageUrl == null) imageUrl = getTextValue(photo, "full_size_url");
+            }
         }
+        if (imageUrl == null) imageUrl = getFirstNonNull(item, "image_url", "thumbnail_url", "photo_url");
+        favorite.setImageUrl(imageUrl);
 
-        // Date de publication
+        // URL du produit
+        favorite.setProductUrl(getFirstNonNull(item, "url", "path", "item_url"));
+
+        // Vendu
+        favorite.setSold(item.path("is_closed").asBoolean(false) ||
+                        item.path("is_sold").asBoolean(false) ||
+                        "sold".equalsIgnoreCase(getFirstNonNull(item, "status")));
+
+        // Vendeur
+        String seller = getTextValue(item.path("user"), "login");
+        if (seller == null) seller = getTextValue(item.path("user"), "username");
+        if (seller == null) seller = getTextValue(item.path("seller"), "login");
+        favorite.setSellerName(seller);
+
+        // Taille
+        favorite.setSize(getFirstNonNull(item, "size_title", "size", "size_name"));
+
+        // État/Condition
+        favorite.setCondition(getFirstNonNull(item, "status", "condition", "item_status"));
+
+        // Catégorie - essayer plusieurs structures
+        String category = getTextValue(item.path("catalog_dto"), "title");
+        if (category == null) category = getTextValue(item.path("catalog"), "title");
+        if (category == null) category = getFirstNonNull(item, "category", "catalog_title", "category_name");
+        favorite.setCategory(category);
+
+        // Genre
+        String gender = getFirstNonNull(item, "gender", "gender_title");
+        if (gender == null) {
+            JsonNode catalogDto = item.path("catalog_dto");
+            if (!catalogDto.isMissingNode()) {
+                gender = getFirstNonNull(catalogDto, "gender", "gender_title");
+            }
+        }
+        favorite.setGender(gender);
+
+        // Date de publication - essayer plusieurs formats
         long createdTimestamp = item.path("created_at_ts").asLong(0);
+        if (createdTimestamp == 0) createdTimestamp = item.path("created_at").asLong(0);
+        if (createdTimestamp == 0) createdTimestamp = item.path("updated_at_ts").asLong(0);
         if (createdTimestamp > 0) {
             favorite.setListedDate(LocalDateTime.ofInstant(
                     Instant.ofEpochSecond(createdTimestamp),
                     ZoneId.systemDefault()));
         }
 
+        log.debug("Favori mappé: title={}, brand={}, price={}, imageUrl={}",
+                favorite.getTitle(), favorite.getBrand(), favorite.getPrice(),
+                favorite.getImageUrl() != null ? "présent" : "null");
+
         return favorite;
+    }
+
+    private String getFirstNonNull(JsonNode node, String... fields) {
+        for (String field : fields) {
+            String value = getTextValue(node, field);
+            if (value != null && !value.isEmpty()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private String getTextValue(JsonNode node, String field) {
