@@ -1,0 +1,17 @@
+{
+  "name": "vinted-session-manager",
+  "version": "1.0.0",
+  "description": "Automated Vinted session management with Playwright",
+  "main": "vinted-session-manager.js",
+  "scripts": {
+    "refresh": "node vinted-session-manager.js",
+    "refresh:visible": "HEADLESS=false node vinted-session-manager.js",
+    "install-browsers": "npx playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
