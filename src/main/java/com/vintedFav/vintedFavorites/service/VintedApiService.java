@@ -34,6 +34,10 @@ public class VintedApiService {
     @org.springframework.beans.factory.annotation.Autowired
     private VintedAuthService authService;
 
+    @org.springframework.context.annotation.Lazy
+    @org.springframework.beans.factory.annotation.Autowired
+    private VintedSessionService sessionService;
+
     public VintedApiService(WebClient webClient, VintedCookieService cookieService,
                            FavoriteService favoriteService, ObjectMapper objectMapper) {
         this.webClient = webClient;
@@ -226,6 +230,20 @@ public class VintedApiService {
         } else if (response.statusCode().value() == 401 || response.statusCode().value() == 403) {
             int statusCode = response.statusCode().value();
             log.error("Session expirée ou non autorisée ({}). Veuillez mettre à jour les cookies.", statusCode);
+
+            // Déclencher un rafraîchissement automatique de session si les credentials sont configurés
+            if (sessionService != null && sessionService.hasCredentials() && !sessionService.isRefreshInProgress()) {
+                log.info("Déclenchement du rafraîchissement automatique de session...");
+                sessionService.refreshSession()
+                        .thenAccept(success -> {
+                            if (success) {
+                                log.info("Session rafraîchie automatiquement - réessayez la requête");
+                            } else {
+                                log.error("Échec du rafraîchissement automatique de session");
+                            }
+                        });
+            }
+
             return Mono.error(new RuntimeException("Erreur " + statusCode + " - Session expirée"));
         } else {
             log.error("Erreur API Vinted: {}", response.statusCode());

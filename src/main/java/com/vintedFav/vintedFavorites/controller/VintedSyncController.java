@@ -1,11 +1,14 @@
 package com.vintedFav.vintedFavorites.controller;
 
 import com.vintedFav.vintedFavorites.dto.CookieUpdateRequest;
+import com.vintedFav.vintedFavorites.dto.CredentialsRequest;
 import com.vintedFav.vintedFavorites.dto.SyncResponse;
 import com.vintedFav.vintedFavorites.model.VintedCookie;
+import com.vintedFav.vintedFavorites.model.VintedCredentials;
 import com.vintedFav.vintedFavorites.service.FavoriteService;
 import com.vintedFav.vintedFavorites.service.VintedApiService;
 import com.vintedFav.vintedFavorites.service.VintedCookieService;
+import com.vintedFav.vintedFavorites.service.VintedSessionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -15,6 +18,7 @@ import reactor.core.publisher.Mono;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/vinted")
@@ -26,6 +30,7 @@ public class VintedSyncController {
     private final VintedApiService vintedApiService;
     private final VintedCookieService cookieService;
     private final FavoriteService favoriteService;
+    private final VintedSessionService sessionService;
 
     /**
      * Met à jour les cookies Vinted
@@ -182,5 +187,120 @@ public class VintedSyncController {
         }
 
         return cookies;
+    }
+
+    // ==================== CREDENTIALS MANAGEMENT ====================
+
+    /**
+     * Configure Vinted credentials for automatic session refresh
+     */
+    @PostMapping("/credentials")
+    public ResponseEntity<Map<String, Object>> saveCredentials(@RequestBody CredentialsRequest request) {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            if (request.getEmail() == null || request.getEmail().isEmpty() ||
+                request.getPassword() == null || request.getPassword().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "Email et mot de passe requis");
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            sessionService.saveCredentials(request.getEmail(), request.getPassword(), request.getUserId());
+
+            response.put("success", true);
+            response.put("message", "Identifiants sauvegardés. Utilisez /session/refresh pour vous connecter.");
+            response.put("email", request.getEmail());
+            log.info("Credentials configured for: {}", request.getEmail());
+
+        } catch (Exception e) {
+            log.error("Error saving credentials: {}", e.getMessage());
+            response.put("success", false);
+            response.put("message", "Erreur: " + e.getMessage());
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Check if credentials are configured
+     */
+    @GetMapping("/credentials/status")
+    public ResponseEntity<Map<String, Object>> getCredentialsStatus() {
+        Map<String, Object> response = new HashMap<>();
+        Optional<VintedCredentials> credentials = sessionService.getActiveCredentials();
+
+        response.put("configured", credentials.isPresent());
+        if (credentials.isPresent()) {
+            response.put("email", credentials.get().getEmail());
+            response.put("lastRefresh", credentials.get().getLastRefresh());
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Delete saved credentials
+     */
+    @DeleteMapping("/credentials")
+    public ResponseEntity<Map<String, Object>> deleteCredentials() {
+        sessionService.deleteAllCredentials();
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", "Identifiants supprimés");
+        return ResponseEntity.ok(response);
+    }
+
+    // ==================== SESSION MANAGEMENT ====================
+
+    /**
+     * Manually trigger a session refresh using Playwright
+     * This will open a browser, login to Vinted, and update cookies automatically
+     */
+    @PostMapping("/session/refresh")
+    public ResponseEntity<Map<String, Object>> refreshSession() {
+        Map<String, Object> response = new HashMap<>();
+
+        if (!sessionService.hasCredentials()) {
+            response.put("success", false);
+            response.put("message", "Aucun identifiant configuré. Utilisez POST /credentials d'abord.");
+            return ResponseEntity.badRequest().body(response);
+        }
+
+        if (sessionService.isRefreshInProgress()) {
+            response.put("success", false);
+            response.put("message", "Un rafraîchissement est déjà en cours...");
+            return ResponseEntity.ok(response);
+        }
+
+        log.info("Starting manual session refresh...");
+
+        // Start async refresh
+        sessionService.refreshSession()
+                .thenAccept(success -> {
+                    if (success) {
+                        log.info("Session refresh completed successfully");
+                    } else {
+                        log.error("Session refresh failed");
+                    }
+                });
+
+        response.put("success", true);
+        response.put("message", "Rafraîchissement de session démarré. Vérifiez les logs pour le statut.");
+        response.put("inProgress", true);
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Get the current refresh status
+     */
+    @GetMapping("/session/refresh/status")
+    public ResponseEntity<Map<String, Object>> getRefreshStatus() {
+        Map<String, Object> response = new HashMap<>();
+        response.put("inProgress", sessionService.isRefreshInProgress());
+        response.put("hasCredentials", sessionService.hasCredentials());
+        response.put("sessionValid", vintedApiService.isSessionValid());
+        return ResponseEntity.ok(response);
     }
 }
