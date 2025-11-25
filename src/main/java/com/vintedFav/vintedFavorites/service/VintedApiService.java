@@ -333,9 +333,11 @@ public class VintedApiService {
         JsonNode catalogNode = item.path("catalog");
         if (!catalogNode.isMissingNode()) {
             category = getTextValue(catalogNode, "title");
+            log.debug("Category from catalog.title: {}", category);
         }
         if (category == null) {
             category = getTextValue(item, "catalog_title");
+            if (category != null) log.debug("Category from catalog_title: {}", category);
         }
         // Essayer aussi catalog_tree pour avoir la catégorie parent
         if (category == null) {
@@ -343,12 +345,28 @@ public class VintedApiService {
             if (catalogTree.isArray() && catalogTree.size() > 0) {
                 // Prendre la dernière catégorie (la plus spécifique)
                 category = getTextValue(catalogTree.get(catalogTree.size() - 1), "title");
+                if (category != null) log.debug("Category from catalog_tree[last]: {}", category);
             }
+        }
+
+        // Si toujours pas de catégorie, essayer d'autres champs
+        if (category == null) {
+            // Essayer depuis les métadonnées de la photo ou d'autres champs
+            category = getTextValue(item, "service_fee_catalog_title");
+            if (category != null) log.debug("Category from service_fee_catalog_title: {}", category);
+        }
+
+        if (category == null) {
+            log.warn("⚠️  Category not found for item: {} (vintedId: {})", favorite.getTitle(), favorite.getVintedId());
         }
         favorite.setCategory(category);
 
         // Genre - depuis gender ou catalog
         String gender = getTextValue(item, "gender");
+        if (gender != null) {
+            log.debug("Gender from gender field: {}", gender);
+        }
+
         if (gender == null) {
             // Essayer d'extraire depuis la catégorie parente
             JsonNode catalogTree = item.path("catalog_tree");
@@ -357,13 +375,20 @@ public class VintedApiService {
                 if (topCategory != null) {
                     if (topCategory.toLowerCase().contains("femme") || topCategory.toLowerCase().contains("women")) {
                         gender = "Femme";
+                        log.debug("Gender inferred from catalog_tree: Femme");
                     } else if (topCategory.toLowerCase().contains("homme") || topCategory.toLowerCase().contains("men")) {
                         gender = "Homme";
+                        log.debug("Gender inferred from catalog_tree: Homme");
                     } else if (topCategory.toLowerCase().contains("enfant") || topCategory.toLowerCase().contains("kids")) {
                         gender = "Enfant";
+                        log.debug("Gender inferred from catalog_tree: Enfant");
                     }
                 }
             }
+        }
+
+        if (gender == null) {
+            log.warn("⚠️  Gender not found for item: {} (vintedId: {})", favorite.getTitle(), favorite.getVintedId());
         }
         favorite.setGender(gender);
 
@@ -378,7 +403,7 @@ public class VintedApiService {
                     ZoneId.systemDefault()));
         }
 
-        log.debug("Détails enrichis pour {}: category={}, gender={}, listedDate={}",
+        log.info("✓ Détails enrichis pour '{}': category={}, gender={}, listedDate={}",
                 favorite.getTitle(), favorite.getCategory(), favorite.getGender(), favorite.getListedDate());
     }
 
@@ -502,8 +527,14 @@ public class VintedApiService {
                             if (existing.isEmpty()) {
                                 favoriteService.saveFavorite(favorite);
                                 savedCount++;
-                                favoritesToEnrich.add(favorite);
-                                log.info("Nouveau favori sauvegardé: {}", favorite.getTitle());
+
+                                // Toujours enrichir les nouveaux favoris si category ou gender manquent
+                                if (needsEnrichment(favorite)) {
+                                    favoritesToEnrich.add(favorite);
+                                    log.info("Nouveau favori sauvegardé (besoin d'enrichissement): {}", favorite.getTitle());
+                                } else {
+                                    log.info("Nouveau favori sauvegardé (complet): {}", favorite.getTitle());
+                                }
                             } else {
                                 // Mettre à jour les informations existantes
                                 Favorite existingFavorite = existing.get(0);
