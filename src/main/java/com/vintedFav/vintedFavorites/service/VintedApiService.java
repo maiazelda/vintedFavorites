@@ -55,6 +55,12 @@ public class VintedApiService {
     @Value("${vinted.api.user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36}")
     private String userAgent;
 
+    @Value("${vinted.api.enrichment-delay:2000}")
+    private int enrichmentDelayMs;
+
+    @Value("${vinted.api.max-enrichment-batch:20}")
+    private int maxEnrichmentBatch;
+
     public Mono<List<Favorite>> fetchFavorites(int page, int perPage) {
         // Vérifier d'abord si le token est expiré et le rafraîchir si nécessaire
         return authService.ensureValidToken()
@@ -333,9 +339,11 @@ public class VintedApiService {
         JsonNode catalogNode = item.path("catalog");
         if (!catalogNode.isMissingNode()) {
             category = getTextValue(catalogNode, "title");
+            log.debug("Category from catalog.title: {}", category);
         }
         if (category == null) {
             category = getTextValue(item, "catalog_title");
+            if (category != null) log.debug("Category from catalog_title: {}", category);
         }
         // Essayer aussi catalog_tree pour avoir la catégorie parent
         if (category == null) {
@@ -343,12 +351,28 @@ public class VintedApiService {
             if (catalogTree.isArray() && catalogTree.size() > 0) {
                 // Prendre la dernière catégorie (la plus spécifique)
                 category = getTextValue(catalogTree.get(catalogTree.size() - 1), "title");
+                if (category != null) log.debug("Category from catalog_tree[last]: {}", category);
             }
+        }
+
+        // Si toujours pas de catégorie, essayer d'autres champs
+        if (category == null) {
+            // Essayer depuis les métadonnées de la photo ou d'autres champs
+            category = getTextValue(item, "service_fee_catalog_title");
+            if (category != null) log.debug("Category from service_fee_catalog_title: {}", category);
+        }
+
+        if (category == null) {
+            log.warn("⚠️  Category not found for item: {} (vintedId: {})", favorite.getTitle(), favorite.getVintedId());
         }
         favorite.setCategory(category);
 
         // Genre - depuis gender ou catalog
         String gender = getTextValue(item, "gender");
+        if (gender != null) {
+            log.debug("Gender from gender field: {}", gender);
+        }
+
         if (gender == null) {
             // Essayer d'extraire depuis la catégorie parente
             JsonNode catalogTree = item.path("catalog_tree");
@@ -357,13 +381,20 @@ public class VintedApiService {
                 if (topCategory != null) {
                     if (topCategory.toLowerCase().contains("femme") || topCategory.toLowerCase().contains("women")) {
                         gender = "Femme";
+                        log.debug("Gender inferred from catalog_tree: Femme");
                     } else if (topCategory.toLowerCase().contains("homme") || topCategory.toLowerCase().contains("men")) {
                         gender = "Homme";
+                        log.debug("Gender inferred from catalog_tree: Homme");
                     } else if (topCategory.toLowerCase().contains("enfant") || topCategory.toLowerCase().contains("kids")) {
                         gender = "Enfant";
+                        log.debug("Gender inferred from catalog_tree: Enfant");
                     }
                 }
             }
+        }
+
+        if (gender == null) {
+            log.warn("⚠️  Gender not found for item: {} (vintedId: {})", favorite.getTitle(), favorite.getVintedId());
         }
         favorite.setGender(gender);
 
@@ -378,7 +409,7 @@ public class VintedApiService {
                     ZoneId.systemDefault()));
         }
 
-        log.debug("Détails enrichis pour {}: category={}, gender={}, listedDate={}",
+        log.info("✓ Détails enrichis pour '{}': category={}, gender={}, listedDate={}",
                 favorite.getTitle(), favorite.getCategory(), favorite.getGender(), favorite.getListedDate());
     }
 
@@ -444,16 +475,13 @@ public class VintedApiService {
         // État/Condition (le champ "status" contient l'état)
         favorite.setCondition(getTextValue(item, "status"));
 
-        // Pour category et gender, on peut essayer d'extraire depuis item_box ou autres
-        JsonNode itemBox = item.path("item_box");
-        if (!itemBox.isMissingNode()) {
-            // On pourrait parser "second_line" pour extraire des infos
-            String firstLine = getTextValue(itemBox, "first_line"); // souvent la marque
-        }
+        // Enrichir avec category, gender et listedDate si disponibles dans le JSON
+        enrichFavoriteWithDetails(favorite, item);
 
-        log.debug("Favori mappé: id={}, title={}, brand={}, price={}, imageUrl={}",
+        log.debug("Favori mappé: id={}, title={}, brand={}, price={}, category={}, gender={}, imageUrl={}",
                 favorite.getVintedId(), favorite.getTitle(), favorite.getBrand(),
-                favorite.getPrice(), favorite.getImageUrl() != null ? "présent" : "null");
+                favorite.getPrice(), favorite.getCategory(), favorite.getGender(),
+                favorite.getImageUrl() != null ? "présent" : "null");
 
         return favorite;
     }
@@ -505,8 +533,14 @@ public class VintedApiService {
                             if (existing.isEmpty()) {
                                 favoriteService.saveFavorite(favorite);
                                 savedCount++;
-                                favoritesToEnrich.add(favorite);
-                                log.info("Nouveau favori sauvegardé: {}", favorite.getTitle());
+
+                                // Toujours enrichir les nouveaux favoris si category ou gender manquent
+                                if (needsEnrichment(favorite)) {
+                                    favoritesToEnrich.add(favorite);
+                                    log.info("Nouveau favori sauvegardé (besoin d'enrichissement): {}", favorite.getTitle());
+                                } else {
+                                    log.info("Nouveau favori sauvegardé (complet): {}", favorite.getTitle());
+                                }
                             } else {
                                 // Mettre à jour les informations existantes
                                 Favorite existingFavorite = existing.get(0);
@@ -549,31 +583,63 @@ public class VintedApiService {
     /**
      * Enrichit une liste de favoris avec les détails (category, gender, listedDate)
      * en appelant l'API de détail pour chaque article
+     * IMPORTANT: Limite le nombre de favoris enrichis pour éviter le rate limiting (429)
      */
     public Mono<Void> enrichFavorites(List<Favorite> favorites) {
         if (favorites.isEmpty()) {
             return Mono.empty();
         }
 
+        // Limiter le nombre de favoris à enrichir pour éviter le rate limiting
+        List<Favorite> limitedFavorites = favorites.size() > maxEnrichmentBatch
+                ? favorites.subList(0, maxEnrichmentBatch)
+                : favorites;
+
+        if (favorites.size() > maxEnrichmentBatch) {
+            log.warn("⚠️  Limitation: enrichissement de {} favoris sur {} pour éviter le rate limiting (429). " +
+                    "Relancez l'enrichissement pour continuer.", maxEnrichmentBatch, favorites.size());
+        }
+
         AtomicInteger enrichedCount = new AtomicInteger(0);
         AtomicInteger index = new AtomicInteger(0);
+        AtomicInteger errorCount = new AtomicInteger(0);
 
-        return Mono.defer(() -> enrichNextFavorite(favorites, index, enrichedCount))
-                .doOnTerminate(() -> log.info("Enrichissement terminé: {}/{} favoris enrichis",
-                        enrichedCount.get(), favorites.size()));
+        return Mono.defer(() -> enrichNextFavorite(limitedFavorites, index, enrichedCount, errorCount))
+                .doOnTerminate(() -> {
+                    log.info("Enrichissement terminé: {}/{} favoris enrichis, {} erreurs",
+                            enrichedCount.get(), limitedFavorites.size(), errorCount.get());
+                    if (favorites.size() > maxEnrichmentBatch) {
+                        log.info("💡 Astuce: {} favoris restants. Relancez POST /api/vinted/favorites/enrich",
+                                favorites.size() - maxEnrichmentBatch);
+                    }
+                });
     }
 
-    private Mono<Void> enrichNextFavorite(List<Favorite> favorites, AtomicInteger index, AtomicInteger enrichedCount) {
+    private Mono<Void> enrichNextFavorite(List<Favorite> favorites, AtomicInteger index,
+                                          AtomicInteger enrichedCount, AtomicInteger errorCount) {
         int currentIndex = index.getAndIncrement();
         if (currentIndex >= favorites.size()) {
             return Mono.empty();
         }
 
         Favorite favorite = favorites.get(currentIndex);
-        log.debug("Enrichissement {}/{}: {}", currentIndex + 1, favorites.size(), favorite.getTitle());
+        log.info("Enrichissement {}/{}: {} (délai: {}ms)",
+                currentIndex + 1, favorites.size(), favorite.getTitle(), enrichmentDelayMs);
 
         return fetchItemDetails(favorite.getVintedId())
-                .delaySubscription(Duration.ofMillis(300)) // Délai avant l'appel pour éviter le rate limiting
+                .delaySubscription(Duration.ofMillis(enrichmentDelayMs)) // Délai configurable pour éviter le rate limiting
+                .retryWhen(reactor.util.retry.Retry.backoff(2, Duration.ofSeconds(5))
+                        .filter(throwable -> throwable.getMessage() != null &&
+                                (throwable.getMessage().contains("429") ||
+                                 throwable.getMessage().contains("Too Many Requests")))
+                        .doBeforeRetry(signal ->
+                            log.warn("⚠️  Erreur 429 sur {}, retry #{} dans {}s...",
+                                    favorite.getTitle(),
+                                    signal.totalRetries() + 1,
+                                    5 * Math.pow(2, signal.totalRetries())
+                            )
+                        )
+                )
                 .doOnNext(details -> {
                     // Mettre à jour le favori avec les détails
                     favorite.setCategory(details.getCategory());
@@ -581,18 +647,26 @@ public class VintedApiService {
                     favorite.setListedDate(details.getListedDate());
                     favoriteService.saveFavorite(favorite);
                     enrichedCount.incrementAndGet();
-                    log.info("Favori enrichi: {} - category={}, gender={}, listedDate={}",
+                    log.info("✅ Favori enrichi: {} - category={}, gender={}, listedDate={}",
                             favorite.getTitle(), details.getCategory(), details.getGender(), details.getListedDate());
                 })
                 .switchIfEmpty(Mono.defer(() -> {
-                    log.debug("Article {} non disponible pour enrichissement", favorite.getTitle());
+                    log.debug("Article {} non disponible pour enrichissement (404 ou supprimé)", favorite.getTitle());
                     return Mono.empty();
                 }))
                 .onErrorResume(e -> {
-                    log.debug("Erreur enrichissement {}: {}", favorite.getTitle(), e.getMessage());
-                    return Mono.empty();
+                    errorCount.incrementAndGet();
+                    if (e.getMessage() != null && (e.getMessage().contains("429") || e.getMessage().contains("Too Many Requests"))) {
+                        log.error("❌ Rate limiting (429) après retries sur {}: {}. Arrêt de l'enrichissement pour éviter le blocage.",
+                                favorite.getTitle(), e.getMessage());
+                        // Arrêter complètement l'enrichissement en cas de 429 persistant
+                        return Mono.error(new RuntimeException("Rate limiting (429) détecté. Attendez quelques minutes avant de relancer."));
+                    } else {
+                        log.warn("⚠️  Erreur enrichissement {} (continuant): {}", favorite.getTitle(), e.getMessage());
+                        return Mono.empty();
+                    }
                 })
-                .then(Mono.defer(() -> enrichNextFavorite(favorites, index, enrichedCount)));
+                .then(Mono.defer(() -> enrichNextFavorite(favorites, index, enrichedCount, errorCount)));
     }
 
     private void updateExistingFavorite(Favorite existing, Favorite updated) {
