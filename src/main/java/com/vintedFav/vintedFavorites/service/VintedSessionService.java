@@ -9,7 +9,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Optional;
@@ -68,6 +72,42 @@ public class VintedSessionService {
     }
 
     /**
+     * Resolve the script path - tries multiple locations
+     */
+    private String resolveScriptPath() {
+        String scriptName = "vinted-session-manager.js";
+
+        // Try configured path first (could be absolute or relative)
+        Path configuredPath = Paths.get(scriptsPath, scriptName);
+        if (Files.exists(configuredPath)) {
+            log.debug("Using configured script path: {}", configuredPath.toAbsolutePath());
+            return configuredPath.toAbsolutePath().toString();
+        }
+
+        // Try current working directory + scripts
+        String currentDir = System.getProperty("user.dir");
+        Path cwdPath = Paths.get(currentDir, "scripts", scriptName);
+        if (Files.exists(cwdPath)) {
+            log.debug("Using script from working directory: {}", cwdPath.toAbsolutePath());
+            return cwdPath.toAbsolutePath().toString();
+        }
+
+        // Try current working directory + vintedFavorites + scripts (for IntelliJ projects)
+        Path projectPath = Paths.get(currentDir, "vintedFavorites", "scripts", scriptName);
+        if (Files.exists(projectPath)) {
+            log.debug("Using script from project subdirectory: {}", projectPath.toAbsolutePath());
+            return projectPath.toAbsolutePath().toString();
+        }
+
+        // Fallback to configured path (will fail but with clear error message)
+        log.warn("Script not found in any expected location. Tried: {}, {}, {}",
+                configuredPath.toAbsolutePath(),
+                cwdPath.toAbsolutePath(),
+                projectPath.toAbsolutePath());
+        return configuredPath.toAbsolutePath().toString();
+    }
+
+    /**
      * Trigger a session refresh using Playwright
      * Returns a CompletableFuture that completes when refresh is done
      */
@@ -96,10 +136,14 @@ public class VintedSessionService {
 
                 log.info("Starting automated session refresh for {}", email);
 
+                // Resolve the script path
+                String scriptPath = resolveScriptPath();
+                log.info("Using Playwright script at: {}", scriptPath);
+
                 // Build the command to run the Playwright script
                 ProcessBuilder pb = new ProcessBuilder(
                         "node",
-                        scriptsPath + "/vinted-session-manager.js",
+                        scriptPath,
                         "--email", email,
                         "--password", password
                 );
