@@ -167,51 +167,74 @@ async function login(page) {
         'input[name="email"]',
         'input[type="email"]',
         'input[data-testid="email-input"]',
+        'input[autocomplete="email"]',
         '#email',
-        'input[placeholder*="mail"]'
+        'input[placeholder*="mail"]',
+        'input[placeholder*="Mail"]',
+        'input[placeholder*="E-mail"]'
     ];
 
     let emailFilled = false;
     for (const selector of emailSelectors) {
         try {
+            console.log(`Trying email selector: ${selector}`);
+            await page.waitForSelector(selector, { timeout: 3000 });
             const emailInput = await page.$(selector);
-            if (emailInput) {
+            if (emailInput && await emailInput.isVisible()) {
+                await emailInput.click();
+                await page.waitForTimeout(500);
                 await emailInput.fill(config.email);
                 emailFilled = true;
-                console.log('Email filled');
+                console.log(`Email filled using selector: ${selector}`);
                 break;
             }
-        } catch (e) {}
+        } catch (e) {
+            console.log(`Selector ${selector} not found`);
+        }
     }
 
     if (!emailFilled) {
         console.error('Could not find email input field');
+        console.log('Saving debug screenshot...');
+        await page.screenshot({ path: 'email-field-not-found.png', fullPage: true });
         return false;
     }
+
+    // Wait a bit before password
+    await page.waitForTimeout(500);
 
     // Try to find and fill password field
     const passwordSelectors = [
         'input[name="password"]',
         'input[type="password"]',
         'input[data-testid="password-input"]',
+        'input[autocomplete="current-password"]',
         '#password'
     ];
 
     let passwordFilled = false;
     for (const selector of passwordSelectors) {
         try {
+            console.log(`Trying password selector: ${selector}`);
+            await page.waitForSelector(selector, { timeout: 3000 });
             const passwordInput = await page.$(selector);
-            if (passwordInput) {
+            if (passwordInput && await passwordInput.isVisible()) {
+                await passwordInput.click();
+                await page.waitForTimeout(500);
                 await passwordInput.fill(config.password);
                 passwordFilled = true;
-                console.log('Password filled');
+                console.log(`Password filled using selector: ${selector}`);
                 break;
             }
-        } catch (e) {}
+        } catch (e) {
+            console.log(`Selector ${selector} not found`);
+        }
     }
 
     if (!passwordFilled) {
         console.error('Could not find password input field');
+        console.log('Saving debug screenshot...');
+        await page.screenshot({ path: 'password-field-not-found.png', fullPage: true });
         return false;
     }
 
