@@ -148,6 +148,8 @@ public class VintedSessionService {
                         "--password", password
                 );
 
+                // Set environment variable to run in non-headless mode for debugging
+                pb.environment().put("HEADLESS", "false");
                 pb.redirectErrorStream(true);
                 Process process = pb.start();
 
