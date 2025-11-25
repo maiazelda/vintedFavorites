@@ -365,15 +365,57 @@ vinted.sync.on-startup=false
 
 # Intervalle de synchronisation (en ms, 30 minutes par défaut)
 vinted.sync.interval=1800000
+
+# Rate Limiting - Protection contre les erreurs 429 "Too Many Requests"
+# Délai entre chaque appel d'enrichissement (en ms) - 2000ms = 2 secondes par défaut
+# ⚠️ IMPORTANT: Augmentez cette valeur si vous continuez à avoir des erreurs 429
+vinted.api.enrichment-delay=2000
+
+# Nombre maximum de favoris à enrichir en une seule fois (20 par défaut)
+# Si vous avez beaucoup de favoris, relancez l'enrichissement plusieurs fois
+vinted.api.max-enrichment-batch=20
 ```
 
 ## Dépannage
+
+### ⚠️ Erreur 429 "Too Many Requests"
+
+L'API Vinted vous bloque temporairement car trop de requêtes ont été faites trop rapidement.
+
+**Solutions :**
+
+1. **Attendez 5-10 minutes** avant de relancer l'enrichissement
+2. **Augmentez le délai** dans `application.properties` :
+   ```properties
+   vinted.api.enrichment-delay=3000  # 3 secondes au lieu de 2
+   ```
+3. **Réduisez le nombre de favoris enrichis à la fois** :
+   ```properties
+   vinted.api.max-enrichment-batch=10  # 10 au lieu de 20
+   ```
+4. **Relancez plusieurs fois** l'enrichissement au lieu de tout faire d'un coup :
+   ```bash
+   # Enrichir 20 favoris
+   curl -X POST http://localhost:8080/api/vinted/favorites/enrich
+   # Attendre 2-3 minutes
+   # Relancer pour les 20 suivants
+   curl -X POST http://localhost:8080/api/vinted/favorites/enrich
+   ```
+
+**Comprendre le rate limiting :**
+- L'application enrichit **20 favoris maximum** par appel (configurable)
+- Avec un délai de **2 secondes** entre chaque (configurable)
+- Soit ~40 secondes pour 20 favoris
+- Si vous avez 100 favoris incomplets, il faudra 5 appels espacés
 
 ### Les favoris n'ont pas de category/genre
 
 1. **Synchronisez d'abord** : `POST /api/vinted/sync`
 2. **Forcez l'enrichissement** : `POST /api/vinted/favorites/enrich`
-3. **Vérifiez les logs** pour voir quels champs manquent
+3. **Surveillez les logs** - Vous verrez :
+   - ✅ `✓ Détails enrichis pour 'Titre': category=Robe, gender=Femme`
+   - ⚠️ `⚠️ Category not found for item: Titre` si les données manquent dans l'API Vinted
+4. **Si trop de favoris** : L'enrichissement s'arrête à 20, relancez-le plusieurs fois
 
 ### Session expirée
 
@@ -387,3 +429,10 @@ Pour obtenir vos cookies :
 2. Ouvrez les DevTools (F12) → Network
 3. Rafraîchissez la page
 4. Copiez le header `Cookie` d'une requête à www.vinted.fr
+
+### L'enrichissement est trop lent
+
+C'est normal ! Pour éviter les erreurs 429 :
+- **2 secondes minimum** entre chaque requête
+- **20 favoris maximum** par batch
+- Pour 100 favoris : ~7-8 minutes au total (5 batchs espacés)
