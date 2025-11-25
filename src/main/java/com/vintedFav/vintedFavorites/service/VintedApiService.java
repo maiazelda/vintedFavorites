@@ -213,7 +213,7 @@ public class VintedApiService {
             return response.bodyToMono(String.class);
         } else if (response.statusCode().value() == 404) {
             // Article supprimé ou non disponible - c'est normal, on ignore
-            log.debug("Article {} non trouvé (404) - probablement supprimé ou vendu", itemId);
+            log.info("Article {} non trouvé (404) - probablement supprimé ou vendu", itemId);
             return Mono.just(""); // Retourner une chaîne vide pour indiquer "non trouvé"
         } else if (response.statusCode().value() == 401 || response.statusCode().value() == 403) {
             int statusCode = response.statusCode().value();
@@ -606,8 +606,12 @@ public class VintedApiService {
 
         return Mono.defer(() -> enrichNextFavorite(limitedFavorites, index, enrichedCount, errorCount))
                 .doOnTerminate(() -> {
-                    log.info("Enrichissement terminé: {}/{} favoris enrichis, {} erreurs",
-                            enrichedCount.get(), limitedFavorites.size(), errorCount.get());
+                    int skipped = limitedFavorites.size() - enrichedCount.get() - errorCount.get();
+                    log.info("=== Enrichissement terminé ===");
+                    log.info("✅ Enrichis avec succès: {}", enrichedCount.get());
+                    log.info("⏭️  Articles non disponibles (404/supprimés): {}", skipped);
+                    log.info("❌ Erreurs: {}", errorCount.get());
+                    log.info("📊 Total traité: {}/{}", limitedFavorites.size(), favorites.size());
                     if (favorites.size() > maxEnrichmentBatch) {
                         log.info("💡 Astuce: {} favoris restants. Relancez POST /api/vinted/favorites/enrich",
                                 favorites.size() - maxEnrichmentBatch);
@@ -651,7 +655,8 @@ public class VintedApiService {
                             favorite.getTitle(), details.getCategory(), details.getGender(), details.getListedDate());
                 })
                 .switchIfEmpty(Mono.defer(() -> {
-                    log.debug("Article {} non disponible pour enrichissement (404 ou supprimé)", favorite.getTitle());
+                    log.info("⏭️  Article '{}' (ID: {}) non disponible pour enrichissement (404 ou supprimé)",
+                            favorite.getTitle(), favorite.getVintedId());
                     return Mono.empty();
                 }))
                 .onErrorResume(e -> {
