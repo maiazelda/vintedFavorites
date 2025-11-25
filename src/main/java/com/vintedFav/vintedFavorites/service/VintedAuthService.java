@@ -12,6 +12,7 @@ import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -74,6 +75,24 @@ public class VintedAuthService {
                         log.debug("Cookie reçu lors du refresh: {}", setCookie);
                         cookieService.updateCookiesFromResponse(setCookie);
                     });
+
+                    // Capturer le X-Csrf-Token depuis les headers de la réponse
+                    List<String> csrfTokenHeaders = response.headers().header("X-Csrf-Token");
+                    if (!csrfTokenHeaders.isEmpty()) {
+                        String csrfToken = csrfTokenHeaders.get(0);
+                        cookieService.saveCsrfToken(csrfToken);
+                        log.info("X-Csrf-Token mis à jour depuis la réponse de refresh");
+                    } else {
+                        log.warn("X-Csrf-Token non trouvé dans les headers de réponse du refresh");
+                    }
+
+                    // Capturer le X-Anon-Id depuis les headers de la réponse
+                    List<String> anonIdHeaders = response.headers().header("X-Anon-Id");
+                    if (!anonIdHeaders.isEmpty()) {
+                        String anonId = anonIdHeaders.get(0);
+                        cookieService.saveAnonId(anonId);
+                        log.info("X-Anon-Id mis à jour depuis la réponse de refresh");
+                    }
 
                     if (response.statusCode().is2xxSuccessful()) {
                         return response.bodyToMono(String.class)

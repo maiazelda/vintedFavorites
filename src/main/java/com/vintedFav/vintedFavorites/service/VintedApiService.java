@@ -86,6 +86,18 @@ public class VintedApiService {
         String csrfToken = cookieService.getCsrfToken();
         String anonId = cookieService.getAnonId();
 
+        // Log warnings si les headers requis manquent
+        if (csrfToken == null || csrfToken.isEmpty()) {
+            log.warn("⚠️  X-Csrf-Token manquant - cela peut causer une erreur 403. Utilisez POST /api/vinted/cookies pour le configurer.");
+        } else {
+            log.debug("X-Csrf-Token présent: {}...", csrfToken.substring(0, Math.min(10, csrfToken.length())));
+        }
+        if (anonId == null || anonId.isEmpty()) {
+            log.warn("⚠️  X-Anon-Id manquant - cela peut causer une erreur 403. Utilisez POST /api/vinted/cookies pour le configurer.");
+        } else {
+            log.debug("X-Anon-Id présent: {}...", anonId.substring(0, Math.min(10, anonId.length())));
+        }
+
         var requestSpec = webClient.get()
                 .uri(url)
                 .header(HttpHeaders.COOKIE, cookieHeader)
@@ -148,6 +160,14 @@ public class VintedApiService {
         String csrfToken = cookieService.getCsrfToken();
         String anonId = cookieService.getAnonId();
 
+        // Log debug si les headers requis manquent (plus silencieux que pour fetchFavorites)
+        if ((csrfToken == null || csrfToken.isEmpty()) && log.isDebugEnabled()) {
+            log.debug("X-Csrf-Token manquant pour item {}", itemId);
+        }
+        if ((anonId == null || anonId.isEmpty()) && log.isDebugEnabled()) {
+            log.debug("X-Anon-Id manquant pour item {}", itemId);
+        }
+
         var requestSpec = webClient.get()
                 .uri(url)
                 .header(HttpHeaders.COOKIE, cookieHeader)
@@ -207,6 +227,22 @@ public class VintedApiService {
             cookieService.updateCookiesFromResponse(setCookie);
         });
 
+        // Capturer et sauvegarder le X-Csrf-Token depuis les headers de la réponse
+        List<String> csrfTokenHeaders = response.headers().header("X-Csrf-Token");
+        if (!csrfTokenHeaders.isEmpty()) {
+            String csrfToken = csrfTokenHeaders.get(0);
+            cookieService.saveCsrfToken(csrfToken);
+            log.debug("X-Csrf-Token mis à jour depuis la réponse API (item details)");
+        }
+
+        // Capturer et sauvegarder le X-Anon-Id depuis les headers de la réponse
+        List<String> anonIdHeaders = response.headers().header("X-Anon-Id");
+        if (!anonIdHeaders.isEmpty()) {
+            String anonId = anonIdHeaders.get(0);
+            cookieService.saveAnonId(anonId);
+            log.debug("X-Anon-Id mis à jour depuis la réponse API (item details)");
+        }
+
         if (response.statusCode().is2xxSuccessful()) {
             return response.bodyToMono(String.class);
         } else if (response.statusCode().value() == 404) {
@@ -241,26 +277,54 @@ public class VintedApiService {
             cookieService.updateCookiesFromResponse(setCookie);
         });
 
+        // Capturer et sauvegarder le X-Csrf-Token depuis les headers de la réponse
+        List<String> csrfTokenHeaders = response.headers().header("X-Csrf-Token");
+        if (!csrfTokenHeaders.isEmpty()) {
+            String csrfToken = csrfTokenHeaders.get(0);
+            cookieService.saveCsrfToken(csrfToken);
+            log.debug("X-Csrf-Token mis à jour depuis la réponse API");
+        }
+
+        // Capturer et sauvegarder le X-Anon-Id depuis les headers de la réponse
+        List<String> anonIdHeaders = response.headers().header("X-Anon-Id");
+        if (!anonIdHeaders.isEmpty()) {
+            String anonId = anonIdHeaders.get(0);
+            cookieService.saveAnonId(anonId);
+            log.debug("X-Anon-Id mis à jour depuis la réponse API");
+        }
+
         if (response.statusCode().is2xxSuccessful()) {
             return response.bodyToMono(String.class);
         } else if (response.statusCode().value() == 401 || response.statusCode().value() == 403) {
             int statusCode = response.statusCode().value();
-            log.error("Session expirée ou non autorisée ({}). Veuillez mettre à jour les cookies.", statusCode);
+            log.error("❌ Erreur {} - Session expirée ou non autorisée.", statusCode);
+
+            // Log des headers manquants
+            String currentCsrfToken = cookieService.getCsrfToken();
+            String currentAnonId = cookieService.getAnonId();
+            log.error("État des headers:");
+            log.error("  - X-Csrf-Token: {}", currentCsrfToken != null ? "présent" : "MANQUANT");
+            log.error("  - X-Anon-Id: {}", currentAnonId != null ? "présent" : "MANQUANT");
+            log.error("  - Cookies actifs: {}", cookieService.getAllActiveCookies().size());
 
             // Déclencher un rafraîchissement automatique de session si les credentials sont configurés
             if (sessionService != null && sessionService.hasCredentials() && !sessionService.isRefreshInProgress()) {
-                log.info("Déclenchement du rafraîchissement automatique de session...");
+                log.info("🔄 Déclenchement du rafraîchissement automatique de session...");
                 sessionService.refreshSession()
                         .thenAccept(success -> {
                             if (success) {
-                                log.info("Session rafraîchie automatiquement - réessayez la requête");
+                                log.info("✅ Session rafraîchie automatiquement - réessayez la requête");
                             } else {
-                                log.error("Échec du rafraîchissement automatique de session");
+                                log.error("❌ Échec du rafraîchissement automatique de session");
                             }
                         });
+            } else if (sessionService == null || !sessionService.hasCredentials()) {
+                log.error("💡 Solution: Configurez vos identifiants avec POST /api/vinted/credentials");
+                log.error("   Puis rafraîchissez la session avec POST /api/vinted/session/refresh");
+                log.error("   Ou mettez à jour les cookies manuellement avec POST /api/vinted/cookies");
             }
 
-            return Mono.error(new RuntimeException("Erreur " + statusCode + " - Session expirée"));
+            return Mono.error(new RuntimeException("Erreur " + statusCode + " - Session expirée ou headers manquants"));
         } else {
             log.error("Erreur API Vinted: {}", response.statusCode());
             return response.bodyToMono(String.class)
