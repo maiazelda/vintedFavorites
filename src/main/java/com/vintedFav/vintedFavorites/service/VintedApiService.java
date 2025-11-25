@@ -327,8 +327,10 @@ public class VintedApiService {
 
             // Log de la structure JSON pour debug (première fois seulement pour un échantillon)
             if (log.isDebugEnabled()) {
+                List<String> fieldNamesList = new ArrayList<>();
+                item.fieldNames().forEachRemaining(fieldNamesList::add);
                 log.debug("📋 Structure JSON de l'item (clés disponibles): {}",
-                    String.join(", ", item.fieldNames()));
+                    String.join(", ", fieldNamesList));
 
                 // Logger spécifiquement les champs liés à la catégorie et au genre
                 log.debug("   catalog: {}", item.has("catalog") ? "présent" : "absent");
