@@ -144,7 +144,7 @@ public class VintedApiService {
         }
 
         String url = baseUrl + "/api/v2/items/" + itemId;
-        log.debug("Récupération des détails de l'article: {}", itemId);
+        log.debug("🔍 Récupération des détails de l'article: {} - URL: {}", itemId, url);
 
         // Récupérer les headers supplémentaires
         String csrfToken = cookieService.getCsrfToken();
@@ -212,15 +212,27 @@ public class VintedApiService {
         if (response.statusCode().is2xxSuccessful()) {
             return response.bodyToMono(String.class);
         } else if (response.statusCode().value() == 404) {
-            // Article supprimé ou non disponible - c'est normal, on ignore
-            log.info("Article {} non trouvé (404) - probablement supprimé ou vendu", itemId);
-            return Mono.just(""); // Retourner une chaîne vide pour indiquer "non trouvé"
+            // Récupérer le body de la réponse pour voir le message d'erreur détaillé
+            return response.bodyToMono(String.class)
+                    .doOnNext(body -> {
+                        log.info("Article {} non trouvé (404) - probablement supprimé ou vendu", itemId);
+                        log.debug("URL appelée: {}/api/v2/items/{}", baseUrl, itemId);
+                        log.debug("Réponse 404 body: {}", body);
+                    })
+                    .then(Mono.just("")); // Retourner une chaîne vide pour indiquer "non trouvé"
         } else if (response.statusCode().value() == 401 || response.statusCode().value() == 403) {
             int statusCode = response.statusCode().value();
-            return Mono.error(new RuntimeException("Erreur " + statusCode + " - Session expirée"));
+            return response.bodyToMono(String.class)
+                    .doOnNext(body -> {
+                        log.warn("Erreur {} pour article {}: {}", statusCode, itemId, body);
+                    })
+                    .then(Mono.error(new RuntimeException("Erreur " + statusCode + " - Session expirée")));
         } else {
-            log.warn("Erreur API pour article {}: {}", itemId, response.statusCode());
-            return Mono.just(""); // Ignorer les autres erreurs
+            return response.bodyToMono(String.class)
+                    .doOnNext(body -> {
+                        log.warn("Erreur API pour article {}: {} - Body: {}", itemId, response.statusCode(), body);
+                    })
+                    .then(Mono.just("")); // Ignorer les autres erreurs
         }
     }
 
