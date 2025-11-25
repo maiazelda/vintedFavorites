@@ -444,16 +444,13 @@ public class VintedApiService {
         // État/Condition (le champ "status" contient l'état)
         favorite.setCondition(getTextValue(item, "status"));
 
-        // Pour category et gender, on peut essayer d'extraire depuis item_box ou autres
-        JsonNode itemBox = item.path("item_box");
-        if (!itemBox.isMissingNode()) {
-            // On pourrait parser "second_line" pour extraire des infos
-            String firstLine = getTextValue(itemBox, "first_line"); // souvent la marque
-        }
+        // Enrichir avec category, gender et listedDate si disponibles dans le JSON
+        enrichFavoriteWithDetails(favorite, item);
 
-        log.debug("Favori mappé: id={}, title={}, brand={}, price={}, imageUrl={}",
+        log.debug("Favori mappé: id={}, title={}, brand={}, price={}, category={}, gender={}, imageUrl={}",
                 favorite.getVintedId(), favorite.getTitle(), favorite.getBrand(),
-                favorite.getPrice(), favorite.getImageUrl() != null ? "présent" : "null");
+                favorite.getPrice(), favorite.getCategory(), favorite.getGender(),
+                favorite.getImageUrl() != null ? "présent" : "null");
 
         return favorite;
     }
