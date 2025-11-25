@@ -327,6 +327,19 @@ public class VintedApiService {
                 return null;
             }
 
+            // Log de la structure JSON pour debug (première fois seulement pour un échantillon)
+            if (log.isDebugEnabled()) {
+                log.debug("📋 Structure JSON de l'item (clés disponibles): {}",
+                    String.join(", ", item.fieldNames()));
+
+                // Logger spécifiquement les champs liés à la catégorie et au genre
+                log.debug("   catalog: {}", item.has("catalog") ? "présent" : "absent");
+                log.debug("   catalog_title: {}", item.has("catalog_title") ? item.get("catalog_title").asText() : "absent");
+                log.debug("   catalog_tree: {}", item.has("catalog_tree") ? "présent (array)" : "absent");
+                log.debug("   gender: {}", item.has("gender") ? item.get("gender").asText() : "absent");
+                log.debug("   user_gender: {}", item.has("user_gender") ? item.get("user_gender").asText() : "absent");
+            }
+
             Favorite favorite = mapJsonToFavorite(item);
 
             // Enrichir avec les champs supplémentaires disponibles dans le détail
