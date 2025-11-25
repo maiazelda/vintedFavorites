@@ -156,8 +156,8 @@ async function login(page) {
         await page.goto(`${config.vintedUrl}/member/login`, { waitUntil: 'networkidle' });
     }
 
-    // Wait for login form
-    await page.waitForTimeout(2000);
+    // Wait for login form to be fully loaded
+    await page.waitForTimeout(3000);
 
     // Look for email/password fields
     console.log('Filling login form...');
@@ -178,15 +178,17 @@ async function login(page) {
     for (const selector of emailSelectors) {
         try {
             console.log(`Trying email selector: ${selector}`);
-            await page.waitForSelector(selector, { timeout: 3000 });
             const emailInput = await page.$(selector);
-            if (emailInput && await emailInput.isVisible()) {
-                await emailInput.click();
-                await page.waitForTimeout(500);
-                await emailInput.fill(config.email);
-                emailFilled = true;
-                console.log(`Email filled using selector: ${selector}`);
-                break;
+            if (emailInput) {
+                const isVisible = await emailInput.isVisible().catch(() => false);
+                if (isVisible) {
+                    await emailInput.click();
+                    await page.waitForTimeout(500);
+                    await emailInput.fill(config.email);
+                    emailFilled = true;
+                    console.log(`Email filled using selector: ${selector}`);
+                    break;
+                }
             }
         } catch (e) {
             console.log(`Selector ${selector} not found`);
@@ -216,15 +218,17 @@ async function login(page) {
     for (const selector of passwordSelectors) {
         try {
             console.log(`Trying password selector: ${selector}`);
-            await page.waitForSelector(selector, { timeout: 3000 });
             const passwordInput = await page.$(selector);
-            if (passwordInput && await passwordInput.isVisible()) {
-                await passwordInput.click();
-                await page.waitForTimeout(500);
-                await passwordInput.fill(config.password);
-                passwordFilled = true;
-                console.log(`Password filled using selector: ${selector}`);
-                break;
+            if (passwordInput) {
+                const isVisible = await passwordInput.isVisible().catch(() => false);
+                if (isVisible) {
+                    await passwordInput.click();
+                    await page.waitForTimeout(500);
+                    await passwordInput.fill(config.password);
+                    passwordFilled = true;
+                    console.log(`Password filled using selector: ${selector}`);
+                    break;
+                }
             }
         } catch (e) {
             console.log(`Selector ${selector} not found`);
@@ -247,27 +251,168 @@ async function login(page) {
         '[data-testid="login-submit"]'
     ];
 
+    let submitClicked = false;
     for (const selector of submitSelectors) {
         try {
             const submitBtn = await page.$(selector);
             if (submitBtn) {
-                await submitBtn.click();
+                // Wait for navigation after clicking submit
+                await Promise.all([
+                    page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => {}),
+                    submitBtn.click()
+                ]);
+                submitClicked = true;
+                console.log('Submit button clicked, waiting for navigation...');
                 break;
             }
-        } catch (e) {}
+        } catch (e) {
+            console.log('Error clicking submit button:', e.message);
+        }
     }
 
-    // Wait for login to complete
-    console.log('Waiting for login to complete...');
-    await page.waitForTimeout(5000);
+    if (!submitClicked) {
+        console.error('Could not find or click submit button');
+        return false;
+    }
 
-    // Check if login was successful
+    // Wait additional time for any redirects or page loads
+    console.log('Waiting for login to complete...');
+    await page.waitForTimeout(3000);
+
+    // Check if login was successful - multiple strategies
+    console.log('Checking login status...');
+
+    // Strategy 1: Check if we're no longer on the login page
+    const currentUrl = page.url();
+    console.log('Current URL:', currentUrl);
+    const isOnLoginPage = currentUrl.includes('/login') || currentUrl.includes('/member/login');
+
+    if (isOnLoginPage) {
+        console.log('Still on login page, checking for error messages or CAPTCHA...');
+
+        // Check for CAPTCHA
+        const hasCaptcha = await page.evaluate(() => {
+            // Check for common CAPTCHA indicators
+            const captchaSelectors = [
+                'iframe[src*="recaptcha"]',
+                'iframe[src*="captcha"]',
+                '#captcha',
+                '.captcha',
+                '[class*="captcha"]',
+                '[id*="captcha"]',
+                '.g-recaptcha',
+                '[class*="recaptcha"]'
+            ];
+
+            return captchaSelectors.some(selector => document.querySelector(selector) !== null);
+        });
+
+        if (hasCaptcha) {
+            console.error('CAPTCHA detected! Vinted requires human verification.');
+            console.error('This usually happens when:');
+            console.error('  1. Too many automated login attempts');
+            console.error('  2. Suspicious activity detected');
+            console.error('Solutions:');
+            console.error('  - Wait a few hours before trying again');
+            console.error('  - Try logging in manually first in a normal browser');
+            console.error('  - Check if your IP is flagged');
+            await page.screenshot({ path: 'captcha-detected.png', fullPage: true });
+            console.log('Screenshot saved to captcha-detected.png');
+            return false;
+        }
+
+        // Check for other error messages
+        const errorInfo = await page.evaluate(() => {
+            const errorTexts = ['incorrect', 'invalid', 'erreur', 'mauvais', 'wrong'];
+            const bodyText = document.body.innerText.toLowerCase();
+            const hasError = errorTexts.some(text => bodyText.includes(text));
+
+            // Try to find specific error message
+            const errorElements = document.querySelectorAll('.error, [class*="error"], [class*="Error"]');
+            const errorMessages = Array.from(errorElements).map(el => el.innerText).filter(text => text.length > 0);
+
+            return {
+                hasError,
+                messages: errorMessages
+            };
+        });
+
+        if (errorInfo.hasError) {
+            console.error('Login error detected on page');
+            if (errorInfo.messages.length > 0) {
+                console.error('Error messages:', errorInfo.messages);
+            }
+            return false;
+        }
+
+        // Still on login page but no obvious errors - might be 2FA
+        console.log('Still on login page without obvious errors. Checking for 2FA...');
+        const has2FA = await page.evaluate(() => {
+            const bodyText = document.body.innerText.toLowerCase();
+            return bodyText.includes('2fa') ||
+                   bodyText.includes('two-factor') ||
+                   bodyText.includes('deux facteurs') ||
+                   bodyText.includes('vérification') ||
+                   bodyText.includes('verification') ||
+                   bodyText.includes('code');
+        });
+
+        if (has2FA) {
+            console.error('Two-factor authentication (2FA) detected!');
+            console.error('This script cannot handle 2FA automatically.');
+            console.error('Please disable 2FA on your Vinted account or complete it manually.');
+            await page.screenshot({ path: '2fa-detected.png', fullPage: true });
+            console.log('Screenshot saved to 2fa-detected.png');
+            return false;
+        }
+    }
+
+    // Strategy 2: Try to find user-specific elements
     const loginSuccess = await page.evaluate(() => {
-        return !!document.querySelector('[data-testid="header--avatar"], .Header__user-avatar, [class*="avatar"]') ||
-               window.location.pathname === '/';
+        // Check for various indicators of being logged in
+        const indicators = [
+            '[data-testid="header--avatar"]',
+            '.Header__user-avatar',
+            '[class*="avatar"]',
+            '[class*="Avatar"]',
+            '[data-testid="user-menu"]',
+            '.user-menu',
+            'a[href*="/profile"]',
+            'a[href*="/member/general"]'
+        ];
+
+        for (const selector of indicators) {
+            if (document.querySelector(selector)) {
+                console.log('Found login indicator:', selector);
+                return true;
+            }
+        }
+
+        // Also check if we're on the home page or any page other than login
+        const isNotLoginPage = !window.location.pathname.includes('/login');
+        return isNotLoginPage;
     });
 
-    if (loginSuccess) {
+    // Strategy 3: Try to navigate to favorites page as final verification
+    if (loginSuccess || !isOnLoginPage) {
+        console.log('Login appears successful, verifying by navigating to favorites...');
+        try {
+            await page.goto(`${config.vintedUrl}/member/items/favourites`, {
+                waitUntil: 'domcontentloaded',
+                timeout: 10000
+            });
+            await page.waitForTimeout(2000);
+
+            // If we can access favorites page, we're definitely logged in
+            const onFavoritesPage = page.url().includes('/favourites') || page.url().includes('/favorites');
+            if (onFavoritesPage) {
+                console.log('Login successful! Successfully accessed favorites page.');
+                return true;
+            }
+        } catch (e) {
+            console.log('Could not navigate to favorites, but login may still be successful');
+        }
+
         console.log('Login successful!');
         return true;
     } else {
@@ -306,21 +451,27 @@ async function refreshSession() {
     const page = await context.newPage();
 
     try {
-        // Login
+        // Login (this now includes navigation to favorites for verification)
         const loginSuccess = await login(page);
 
         if (!loginSuccess) {
             console.error('Login failed!');
             // Take a screenshot for debugging
-            await page.screenshot({ path: 'login-failed.png' });
+            await page.screenshot({ path: 'login-failed.png', fullPage: true });
             console.log('Screenshot saved to login-failed.png');
             process.exit(1);
         }
 
-        // Navigate to favorites page to ensure we have all necessary cookies
-        console.log('Navigating to favorites page...');
-        await page.goto(`${config.vintedUrl}/member/items/favourites`, { waitUntil: 'networkidle' });
-        await page.waitForTimeout(2000);
+        // Ensure we're on favorites page (login should have navigated there already)
+        const currentUrl = page.url();
+        if (!currentUrl.includes('/favourites') && !currentUrl.includes('/favorites')) {
+            console.log('Navigating to favorites page to ensure all cookies are set...');
+            await page.goto(`${config.vintedUrl}/member/items/favourites`, { waitUntil: 'networkidle' });
+            await page.waitForTimeout(2000);
+        } else {
+            console.log('Already on favorites page');
+            await page.waitForTimeout(1000);
+        }
 
         // Extract session data
         const sessionData = await extractSessionData(page, context);
