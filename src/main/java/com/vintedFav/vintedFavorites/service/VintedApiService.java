@@ -3,11 +3,9 @@ package com.vintedFav.vintedFavorites.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintedFav.vintedFavorites.model.Favorite;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -511,38 +509,12 @@ public class VintedApiService {
         return favorite;
     }
 
-    private String getFirstNonNull(JsonNode node, String... fields) {
-        for (String field : fields) {
-            String value = getTextValue(node, field);
-            if (value != null && !value.isEmpty()) {
-                return value;
-            }
-        }
-        return null;
-    }
-
     private String getTextValue(JsonNode node, String field) {
         JsonNode fieldNode = node.path(field);
         if (fieldNode.isMissingNode() || fieldNode.isNull()) {
             return null;
         }
         return fieldNode.asText();
-    }
-
-    private Double getDoubleValue(JsonNode node, String field) {
-        JsonNode fieldNode = node.path(field);
-        if (fieldNode.isMissingNode() || fieldNode.isNull()) {
-            return null;
-        }
-        // Vinted retourne parfois le prix comme string
-        if (fieldNode.isTextual()) {
-            try {
-                return Double.parseDouble(fieldNode.asText().replace(",", "."));
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
-        return fieldNode.asDouble();
     }
 
     public Mono<Integer> syncAllFavorites() {

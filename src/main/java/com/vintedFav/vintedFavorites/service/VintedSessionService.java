@@ -9,7 +9,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,9 +31,6 @@ public class VintedSessionService {
 
     @Value("${vinted.session.auto-refresh:true}")
     private boolean autoRefreshEnabled;
-
-    // Simple encryption key - in production, use a proper secret management
-    private static final String ENCRYPTION_KEY = "VintedFav2024SecretKey";
 
     // Flag to prevent multiple concurrent refresh attempts
     private final AtomicBoolean refreshInProgress = new AtomicBoolean(false);
