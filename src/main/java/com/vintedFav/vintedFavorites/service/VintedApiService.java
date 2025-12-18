@@ -133,7 +133,116 @@ public class VintedApiService {
 
     public Mono<Favorite> fetchItemDetails(String itemId) {
         return authService.ensureValidToken()
-                .flatMap(valid -> fetchItemDetailsInternal(itemId, false));
+                .flatMap(valid -> fetchItemDetailsInternal(itemId, false))
+                .switchIfEmpty(Mono.defer(() -> {
+                    // Si l'API JSON retourne 404, essayer de scraper la page HTML
+                    log.info("API JSON 404 pour item {}, tentative via page HTML...", itemId);
+                    return fetchItemDetailsFromHtml(itemId);
+                }));
+    }
+
+    /**
+     * Récupère les détails d'un article depuis la page HTML
+     * Utilisé comme fallback quand l'API JSON retourne 404
+     */
+    private Mono<Favorite> fetchItemDetailsFromHtml(String itemId) {
+        String cookieHeader = cookieService.buildCookieHeader();
+        String url = baseUrl + "/items/" + itemId;
+
+        return webClient.get()
+                .uri(url)
+                .header(HttpHeaders.COOKIE, cookieHeader)
+                .header(HttpHeaders.USER_AGENT, userAgent)
+                .header(HttpHeaders.ACCEPT, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "fr-FR,fr;q=0.9")
+                .exchangeToMono(response -> {
+                    if (response.statusCode().is2xxSuccessful()) {
+                        return response.bodyToMono(String.class);
+                    }
+                    log.debug("Erreur {} pour page HTML item {}", response.statusCode(), itemId);
+                    return Mono.empty();
+                })
+                .flatMap(html -> parseItemFromHtml(html, itemId))
+                .onErrorResume(e -> {
+                    log.debug("Erreur scraping HTML pour item {}: {}", itemId, e.getMessage());
+                    return Mono.empty();
+                });
+    }
+
+    /**
+     * Parse la page HTML pour extraire les informations de l'article
+     * Vinted inclut un JSON dans un script tag avec les données
+     */
+    private Mono<Favorite> parseItemFromHtml(String html, String itemId) {
+        try {
+            // Chercher le JSON dans le script avec id="__NEXT_DATA__" ou "initial-data"
+            String jsonData = null;
+
+            // Pattern 1: __NEXT_DATA__
+            int startIdx = html.indexOf("\"item\":{");
+            if (startIdx == -1) {
+                startIdx = html.indexOf("\"item\": {");
+            }
+
+            if (startIdx != -1) {
+                // Trouver le bloc JSON de l'item
+                int braceCount = 0;
+                int endIdx = startIdx + 7; // après "item":
+                boolean inString = false;
+                char prevChar = 0;
+
+                for (int i = endIdx; i < html.length(); i++) {
+                    char c = html.charAt(i);
+                    if (c == '"' && prevChar != '\\') {
+                        inString = !inString;
+                    }
+                    if (!inString) {
+                        if (c == '{') braceCount++;
+                        else if (c == '}') {
+                            braceCount--;
+                            if (braceCount == 0) {
+                                endIdx = i + 1;
+                                break;
+                            }
+                        }
+                    }
+                    prevChar = c;
+                }
+
+                jsonData = html.substring(startIdx + 7, endIdx); // +7 pour skipper "item":
+                log.debug("JSON extrait de la page HTML pour item {}", itemId);
+            }
+
+            if (jsonData == null) {
+                // Pattern 2: chercher dans le contenu du script
+                String scriptPattern = "<script[^>]*>.*?window\\.__PRELOADED_STATE__.*?</script>";
+                // Simplification: chercher directement catalog_tree dans le HTML
+                if (html.contains("catalog_tree")) {
+                    log.debug("catalog_tree trouvé dans HTML pour item {}", itemId);
+                }
+            }
+
+            if (jsonData != null) {
+                JsonNode item = objectMapper.readTree(jsonData);
+                log.info("📦 HTML scraping - Champs disponibles: {}", iteratorToString(item.fieldNames()));
+
+                Favorite favorite = new Favorite();
+                favorite.setVintedId(itemId);
+
+                // Extraire les champs
+                favorite.setTitle(getTextValue(item, "title"));
+                enrichFavoriteWithDetails(favorite, item);
+
+                return Mono.just(favorite);
+            }
+
+            log.debug("Impossible d'extraire le JSON de la page HTML pour item {}", itemId);
+            return Mono.empty();
+
+        } catch (Exception e) {
+            log.debug("Erreur parsing HTML pour item {}: {}", itemId, e.getMessage());
+            return Mono.empty();
+        }
     }
 
     private Mono<Favorite> fetchItemDetailsInternal(String itemId, boolean isRetry) {
