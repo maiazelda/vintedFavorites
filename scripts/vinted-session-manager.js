@@ -130,26 +130,97 @@ async function login(page) {
         return true;
     }
 
-    // STEP 1: Click on "S'inscrire | Se connecter" button in header
-    console.log('Step 1: Clicking login button in header...');
-    try {
-        const headerLoginSelectors = [
-            '[data-testid="header--login-button"]',
-            'a:has-text("S\'inscrire")',
-            'a:has-text("Se connecter")',
-            'button:has-text("S\'inscrire")',
-            'button:has-text("Se connecter")',
-            'a[href*="login"]',
-            '.Header__login'
-        ];
+    // STEP 1: First OAuth page appears automatically - click "Se connecter" link (for existing accounts)
+    // This page shows: "Rejoins le mouvement..." with "Tu as déjà un compte ? Se connecter"
+    console.log('Step 1: Looking for first OAuth page (signup page)...');
+    await page.waitForTimeout(2000);
+
+    // Check if we're on the first OAuth page (signup page with "Rejoins le mouvement" or similar)
+    const isFirstOAuthPage = await page.evaluate(() => {
+        const pageText = document.body.innerText;
+        return pageText.includes('Rejoins le mouvement') ||
+               pageText.includes('Tu as déjà un compte') ||
+               pageText.includes("S'inscrire");
+    });
+
+    if (isFirstOAuthPage) {
+        console.log('First OAuth page detected (signup page), clicking "Se connecter" link...');
+
+        // Click on "Se connecter" link for existing users
+        let clicked = false;
+        try {
+            // Look for the "Se connecter" link at the bottom of the modal
+            const allLinks = await page.$$('a');
+            for (const link of allLinks) {
+                const text = await link.textContent();
+                if (text && text.trim() === 'Se connecter') {
+                    console.log('Found "Se connecter" link');
+                    await link.click();
+                    clicked = true;
+                    break;
+                }
+            }
+        } catch (e) {
+            console.log('Error finding Se connecter link:', e.message);
+        }
+
+        if (!clicked) {
+            // Try alternative selectors
+            const seConnecterSelectors = [
+                'a:has-text("Se connecter")',
+                'text=Se connecter',
+                'a[href*="login"]'
+            ];
+            for (const selector of seConnecterSelectors) {
+                try {
+                    const link = await page.$(selector);
+                    if (link && await link.isVisible()) {
+                        await link.click();
+                        clicked = true;
+                        console.log(`Clicked using selector: ${selector}`);
+                        break;
+                    }
+                } catch (e) {}
+            }
+        }
+
+        if (!clicked) {
+            console.log('WARNING: Could not find "Se connecter" link on first OAuth page');
+            await page.screenshot({ path: 'oauth-page1-debug.png', fullPage: true });
+        }
+
+        await page.waitForTimeout(2000);
+    }
+
+    // STEP 2: Second OAuth page - click "e-mail" link
+    // This page shows: "Bienvenue !" with "Ou connecte-toi avec ton e-mail"
+    console.log('Step 2: Looking for second OAuth page (login options)...');
+
+    const isSecondOAuthPage = await page.evaluate(() => {
+        const pageText = document.body.innerText;
+        return (pageText.includes('Bienvenue') || pageText.includes('Continuer avec Google')) &&
+               (pageText.includes('e-mail') || pageText.includes('E-mail'));
+    });
+
+    if (isSecondOAuthPage) {
+        console.log('Second OAuth page detected (login options), clicking "e-mail" link...');
 
         let clicked = false;
-        for (const selector of headerLoginSelectors) {
+
+        // Look for the "e-mail" link
+        const emailLinkSelectors = [
+            'a:has-text("e-mail")',
+            'a:has-text("E-mail")',
+            'a:has-text("ton e-mail")',
+            'a:has-text("connecte-toi avec ton e-mail")'
+        ];
+
+        for (const selector of emailLinkSelectors) {
             try {
-                const loginBtn = await page.$(selector);
-                if (loginBtn && await loginBtn.isVisible()) {
-                    console.log(`Found header login button with selector: ${selector}`);
-                    await loginBtn.click();
+                const link = await page.$(selector);
+                if (link && await link.isVisible()) {
+                    console.log(`Found email link with selector: ${selector}`);
+                    await link.click();
                     clicked = true;
                     break;
                 }
@@ -157,95 +228,26 @@ async function login(page) {
         }
 
         if (!clicked) {
-            console.log('Could not find login button, trying direct URL...');
-            await page.goto(`${config.vintedUrl}/member/login`, { waitUntil: 'networkidle' });
-        }
-
-        await page.waitForTimeout(2000);
-    } catch (e) {
-        console.log('Error clicking header login button:', e.message);
-        await page.goto(`${config.vintedUrl}/member/login`, { waitUntil: 'networkidle' });
-    }
-
-    // STEP 2: Handle OAuth page - click on "Se connecter" link or "e-mail" link
-    console.log('Step 2: Checking for OAuth/intermediate page...');
-    await page.waitForTimeout(1500);
-
-    // Check if we're on the OAuth page (has Google/Apple/Facebook buttons)
-    const isOAuthPage = await page.evaluate(() => {
-        const pageText = document.body.innerText;
-        return pageText.includes('Continuer avec Google') ||
-               pageText.includes('Continuer avec Apple') ||
-               pageText.includes('Continuer avec Facebook') ||
-               pageText.includes('Bienvenue') ||
-               pageText.includes('Rejoins le mouvement');
-    });
-
-    if (isOAuthPage) {
-        console.log('OAuth page detected, looking for email login link...');
-
-        // Try to click on "Se connecter" or "e-mail" link to go to email form
-        const emailLoginSelectors = [
-            'a:has-text("e-mail")',
-            'a:has-text("E-mail")',
-            'a:has-text("ton e-mail")',
-            'a:has-text("ton adresse e-mail")',
-            // The "Se connecter" link for existing users (different from the OAuth buttons)
-            'a:has-text("Se connecter"):not(:has-text("Continuer"))',
-            'text=Se connecter >> nth=-1', // Last "Se connecter" link on page
-            'a[href*="login"]'
-        ];
-
-        let emailLinkClicked = false;
-        for (const selector of emailLoginSelectors) {
-            try {
-                console.log(`Trying email link selector: ${selector}`);
-                const emailLink = await page.$(selector);
-                if (emailLink && await emailLink.isVisible()) {
-                    console.log(`Found email login link with selector: ${selector}`);
-                    await emailLink.click();
-                    emailLinkClicked = true;
-                    break;
-                }
-            } catch (e) {
-                console.log(`Selector ${selector} failed: ${e.message}`);
-            }
-        }
-
-        if (!emailLinkClicked) {
-            // Try a more specific approach - look for the link at the bottom of the modal
-            console.log('Trying to find email link by text content...');
-            try {
-                // Look for links containing "mail" text
-                await page.click('a:text-matches("mail", "i")');
-                emailLinkClicked = true;
-            } catch (e) {
-                console.log('Could not find email link by text match');
-            }
-        }
-
-        if (!emailLinkClicked) {
-            // Last resort: try clicking "Se connecter" link (for existing users)
+            // Try to find by iterating through all links
             try {
                 const allLinks = await page.$$('a');
                 for (const link of allLinks) {
                     const text = await link.textContent();
-                    if (text && text.trim() === 'Se connecter') {
-                        console.log('Found "Se connecter" link for existing users');
+                    if (text && (text.toLowerCase().includes('e-mail') || text.toLowerCase().includes('email'))) {
+                        console.log(`Found email link with text: "${text}"`);
                         await link.click();
-                        emailLinkClicked = true;
+                        clicked = true;
                         break;
                     }
                 }
             } catch (e) {
-                console.log('Could not find Se connecter link');
+                console.log('Error finding email link:', e.message);
             }
         }
 
-        if (!emailLinkClicked) {
-            console.log('WARNING: Could not find email login link on OAuth page');
-            await page.screenshot({ path: 'oauth-page-debug.png', fullPage: true });
-            console.log('Screenshot saved to oauth-page-debug.png for debugging');
+        if (!clicked) {
+            console.log('WARNING: Could not find "e-mail" link on second OAuth page');
+            await page.screenshot({ path: 'oauth-page2-debug.png', fullPage: true });
         }
 
         await page.waitForTimeout(2000);
