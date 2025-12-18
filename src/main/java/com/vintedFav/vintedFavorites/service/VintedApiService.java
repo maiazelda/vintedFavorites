@@ -171,78 +171,289 @@ public class VintedApiService {
 
     /**
      * Parse la page HTML pour extraire les informations de l'article
-     * Vinted inclut un JSON dans un script tag avec les données
+     * Extrait le genre et la catégorie depuis le fil d'Ariane (breadcrumb)
      */
     private Mono<Favorite> parseItemFromHtml(String html, String itemId) {
         try {
-            // Chercher le JSON dans le script avec id="__NEXT_DATA__" ou "initial-data"
-            String jsonData = null;
+            Favorite favorite = new Favorite();
+            favorite.setVintedId(itemId);
 
-            // Pattern 1: __NEXT_DATA__
-            int startIdx = html.indexOf("\"item\":{");
-            if (startIdx == -1) {
-                startIdx = html.indexOf("\"item\": {");
+            // Log pour debug - taille du HTML reçu
+            log.info("📄 HTML reçu pour item {}: {} caractères", itemId, html.length());
+
+            // === MÉTHODE 1: Extraire depuis le breadcrumb ===
+            // Le breadcrumb contient: Accueil / Hommes / Vêtements / Pantalons / ...
+            String gender = extractGenderFromBreadcrumb(html);
+            String category = extractCategoryFromBreadcrumb(html);
+
+            if (gender != null) {
+                log.info("✓ Genre extrait du breadcrumb: {}", gender);
+                favorite.setGender(gender);
+            }
+            if (category != null) {
+                log.info("✓ Catégorie extraite du breadcrumb: {}", category);
+                favorite.setCategory(category);
             }
 
-            if (startIdx != -1) {
-                // Trouver le bloc JSON de l'item
-                int braceCount = 0;
-                int endIdx = startIdx + 7; // après "item":
-                boolean inString = false;
-                char prevChar = 0;
-
-                for (int i = endIdx; i < html.length(); i++) {
-                    char c = html.charAt(i);
-                    if (c == '"' && prevChar != '\\') {
-                        inString = !inString;
-                    }
-                    if (!inString) {
-                        if (c == '{') braceCount++;
-                        else if (c == '}') {
-                            braceCount--;
-                            if (braceCount == 0) {
-                                endIdx = i + 1;
-                                break;
+            // === MÉTHODE 2: Chercher le JSON __NEXT_DATA__ ===
+            if (gender == null || category == null) {
+                String nextDataJson = extractNextDataJson(html);
+                if (nextDataJson != null) {
+                    try {
+                        JsonNode root = objectMapper.readTree(nextDataJson);
+                        JsonNode item = findItemInJson(root);
+                        if (item != null) {
+                            log.info("📦 JSON __NEXT_DATA__ trouvé, champs: {}", iteratorToString(item.fieldNames()));
+                            if (gender == null) {
+                                enrichFavoriteWithDetails(favorite, item);
                             }
                         }
+                    } catch (Exception e) {
+                        log.debug("Erreur parsing __NEXT_DATA__: {}", e.getMessage());
                     }
-                    prevChar = c;
-                }
-
-                jsonData = html.substring(startIdx + 7, endIdx); // +7 pour skipper "item":
-                log.debug("JSON extrait de la page HTML pour item {}", itemId);
-            }
-
-            if (jsonData == null) {
-                // Pattern 2: chercher dans le contenu du script
-                String scriptPattern = "<script[^>]*>.*?window\\.__PRELOADED_STATE__.*?</script>";
-                // Simplification: chercher directement catalog_tree dans le HTML
-                if (html.contains("catalog_tree")) {
-                    log.debug("catalog_tree trouvé dans HTML pour item {}", itemId);
                 }
             }
 
-            if (jsonData != null) {
-                JsonNode item = objectMapper.readTree(jsonData);
-                log.info("📦 HTML scraping - Champs disponibles: {}", iteratorToString(item.fieldNames()));
+            // === MÉTHODE 3: Chercher dans les scripts inline ===
+            if (favorite.getGender() == null || favorite.getCategory() == null) {
+                extractFromInlineScripts(html, favorite);
+            }
 
-                Favorite favorite = new Favorite();
-                favorite.setVintedId(itemId);
-
-                // Extraire les champs
-                favorite.setTitle(getTextValue(item, "title"));
-                enrichFavoriteWithDetails(favorite, item);
-
+            // Vérifier si on a trouvé quelque chose
+            if (favorite.getGender() != null || favorite.getCategory() != null) {
+                log.info("✓ Détails extraits du HTML pour '{}': category={}, gender={}",
+                        itemId, favorite.getCategory(), favorite.getGender());
                 return Mono.just(favorite);
             }
 
-            log.debug("Impossible d'extraire le JSON de la page HTML pour item {}", itemId);
+            log.warn("⚠️ Impossible d'extraire category/gender du HTML pour item {}", itemId);
             return Mono.empty();
 
         } catch (Exception e) {
-            log.debug("Erreur parsing HTML pour item {}: {}", itemId, e.getMessage());
+            log.error("Erreur parsing HTML pour item {}: {}", itemId, e.getMessage());
             return Mono.empty();
         }
+    }
+
+    /**
+     * Extrait le genre depuis le fil d'Ariane (breadcrumb)
+     * Cherche: Hommes, Femmes, Enfants dans les liens du breadcrumb
+     */
+    private String extractGenderFromBreadcrumb(String html) {
+        // Patterns pour trouver le breadcrumb
+        // Pattern 1: liens avec href="/hommes", "/femmes", etc.
+        String[] genderPatterns = {
+            "href=\"/hommes\"", "href=\"/femmes\"", "href=\"/enfants\"",
+            "href='/hommes'", "href='/femmes'", "href='/enfants'",
+            "/hommes/", "/femmes/", "/enfants/",
+            ">Hommes<", ">Femmes<", ">Enfants<",
+            "> Hommes<", "> Femmes<", "> Enfants<"
+        };
+
+        String htmlLower = html.toLowerCase();
+
+        // Chercher dans le breadcrumb (souvent dans les premiers 50KB)
+        String searchArea = html.substring(0, Math.min(html.length(), 100000));
+        String searchAreaLower = searchArea.toLowerCase();
+
+        if (searchAreaLower.contains("/hommes") || searchAreaLower.contains(">hommes<")) {
+            return "Homme";
+        }
+        if (searchAreaLower.contains("/femmes") || searchAreaLower.contains(">femmes<")) {
+            return "Femme";
+        }
+        if (searchAreaLower.contains("/enfants") || searchAreaLower.contains(">enfants<")) {
+            return "Enfant";
+        }
+
+        return null;
+    }
+
+    /**
+     * Extrait la catégorie depuis le fil d'Ariane
+     * Prend la catégorie la plus spécifique (avant le nom du produit)
+     */
+    private String extractCategoryFromBreadcrumb(String html) {
+        // Chercher le pattern du breadcrumb
+        // Exemple: Accueil / Hommes / Vêtements / Pantalons / Autres pantalons
+
+        // Pattern pour extraire les liens du breadcrumb
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+            "href=\"/[^\"]*?/([^/\"]+)\"[^>]*>([^<]+)</a>\\s*(?:/|$)",
+            java.util.regex.Pattern.CASE_INSENSITIVE
+        );
+
+        java.util.List<String> categories = new java.util.ArrayList<>();
+        java.util.regex.Matcher matcher = pattern.matcher(html);
+
+        while (matcher.find()) {
+            String linkText = matcher.group(2).trim();
+            // Ignorer Accueil, Hommes, Femmes, Enfants
+            if (!linkText.equalsIgnoreCase("Accueil") &&
+                !linkText.equalsIgnoreCase("Hommes") &&
+                !linkText.equalsIgnoreCase("Femmes") &&
+                !linkText.equalsIgnoreCase("Enfants") &&
+                !linkText.isEmpty()) {
+                categories.add(linkText);
+            }
+        }
+
+        // Alternative: chercher avec un pattern plus simple
+        if (categories.isEmpty()) {
+            // Chercher les catégories courantes
+            String[] commonCategories = {
+                "Pantalons", "Pantalon", "Robes", "Robe", "Chemises", "Chemise",
+                "T-shirts", "T-shirt", "Vestes", "Veste", "Manteaux", "Manteau",
+                "Chaussures", "Pulls", "Pull", "Jeans", "Jean", "Shorts", "Short",
+                "Jupes", "Jupe", "Blazers", "Blazer", "Sweats", "Sweat",
+                "Accessoires", "Sacs", "Sac", "Bijoux", "Montres"
+            };
+
+            for (String cat : commonCategories) {
+                if (html.contains(">" + cat + "<") || html.contains(">" + cat + " ")) {
+                    return cat;
+                }
+            }
+        }
+
+        // Retourner la catégorie la plus spécifique (la dernière trouvée)
+        if (!categories.isEmpty()) {
+            return categories.get(categories.size() - 1);
+        }
+
+        return null;
+    }
+
+    /**
+     * Extrait le JSON depuis le script __NEXT_DATA__
+     */
+    private String extractNextDataJson(String html) {
+        // Chercher <script id="__NEXT_DATA__" type="application/json">...</script>
+        String startMarker = "<script id=\"__NEXT_DATA__\"";
+        int startIdx = html.indexOf(startMarker);
+        if (startIdx == -1) {
+            startMarker = "<script type=\"application/json\" id=\"__NEXT_DATA__\"";
+            startIdx = html.indexOf(startMarker);
+        }
+
+        if (startIdx != -1) {
+            int jsonStart = html.indexOf(">", startIdx) + 1;
+            int jsonEnd = html.indexOf("</script>", jsonStart);
+            if (jsonStart > 0 && jsonEnd > jsonStart) {
+                return html.substring(jsonStart, jsonEnd);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Cherche récursivement un noeud "item" dans le JSON
+     */
+    private JsonNode findItemInJson(JsonNode node) {
+        if (node == null) return null;
+
+        if (node.has("item") && node.get("item").isObject()) {
+            return node.get("item");
+        }
+
+        if (node.has("props") && node.get("props").has("pageProps")) {
+            JsonNode pageProps = node.get("props").get("pageProps");
+            if (pageProps.has("item")) {
+                return pageProps.get("item");
+            }
+        }
+
+        // Recherche récursive dans les enfants
+        if (node.isObject()) {
+            var fields = node.fields();
+            while (fields.hasNext()) {
+                var entry = fields.next();
+                JsonNode result = findItemInJson(entry.getValue());
+                if (result != null) return result;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Extrait les informations depuis les scripts inline
+     */
+    private void extractFromInlineScripts(String html, Favorite favorite) {
+        // Chercher catalog_tree dans les scripts
+        if (html.contains("catalog_tree")) {
+            log.debug("catalog_tree trouvé dans le HTML");
+
+            // Essayer d'extraire le JSON contenant catalog_tree
+            int idx = html.indexOf("\"catalog_tree\"");
+            if (idx != -1) {
+                // Chercher le début du tableau
+                int arrayStart = html.indexOf("[", idx);
+                if (arrayStart != -1 && arrayStart < idx + 50) {
+                    int arrayEnd = findMatchingBracket(html, arrayStart, '[', ']');
+                    if (arrayEnd != -1) {
+                        try {
+                            String arrayJson = html.substring(arrayStart, arrayEnd + 1);
+                            JsonNode catalogTree = objectMapper.readTree(arrayJson);
+
+                            if (catalogTree.isArray() && catalogTree.size() > 0) {
+                                // Premier élément = genre, dernier = catégorie spécifique
+                                for (JsonNode cat : catalogTree) {
+                                    String title = getTextValue(cat, "title");
+                                    if (title != null) {
+                                        String titleLower = title.toLowerCase();
+                                        if (favorite.getGender() == null) {
+                                            if (titleLower.contains("femme")) {
+                                                favorite.setGender("Femme");
+                                            } else if (titleLower.contains("homme")) {
+                                                favorite.setGender("Homme");
+                                            } else if (titleLower.contains("enfant")) {
+                                                favorite.setGender("Enfant");
+                                            }
+                                        }
+                                    }
+                                }
+                                // Dernière catégorie = la plus spécifique
+                                if (favorite.getCategory() == null && catalogTree.size() > 1) {
+                                    String lastCat = getTextValue(catalogTree.get(catalogTree.size() - 1), "title");
+                                    if (lastCat != null) {
+                                        favorite.setCategory(lastCat);
+                                    }
+                                }
+                            }
+                        } catch (Exception e) {
+                            log.debug("Erreur parsing catalog_tree: {}", e.getMessage());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Trouve la parenthèse/crochet fermant correspondant
+     */
+    private int findMatchingBracket(String str, int start, char open, char close) {
+        int count = 0;
+        boolean inString = false;
+        char prevChar = 0;
+
+        for (int i = start; i < str.length(); i++) {
+            char c = str.charAt(i);
+            if (c == '"' && prevChar != '\\') {
+                inString = !inString;
+            }
+            if (!inString) {
+                if (c == open) count++;
+                else if (c == close) {
+                    count--;
+                    if (count == 0) return i;
+                }
+            }
+            prevChar = c;
+        }
+        return -1;
     }
 
     private Mono<Favorite> fetchItemDetailsInternal(String itemId, boolean isRetry) {
