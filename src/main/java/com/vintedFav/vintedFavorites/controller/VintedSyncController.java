@@ -172,6 +172,56 @@ public class VintedSyncController {
                 });
     }
 
+    /**
+     * Force l'enrichissement des favoris incomplets (sans category ou gender)
+     * Utile si la synchronisation initiale n'a pas pu récupérer tous les détails
+     */
+    @PostMapping("/favorites/enrich")
+    public Mono<ResponseEntity<Map<String, Object>>> enrichIncompleteFavorites() {
+        log.info("Démarrage de l'enrichissement forcé des favoris incomplets");
+
+        if (!vintedApiService.isSessionValid()) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("success", false);
+            error.put("message", "Cookies non configurés ou session expirée");
+            return Mono.just(ResponseEntity.badRequest().body(error));
+        }
+
+        // Récupérer tous les favoris qui ont besoin d'enrichissement
+        List<com.vintedFav.vintedFavorites.model.Favorite> allFavorites = favoriteService.getAllFavorites();
+        List<com.vintedFav.vintedFavorites.model.Favorite> toEnrich = allFavorites.stream()
+                .filter(f -> f.getCategory() == null || f.getGender() == null)
+                .toList();
+
+        if (toEnrich.isEmpty()) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Tous les favoris sont déjà complets");
+            response.put("enriched", 0);
+            response.put("total", allFavorites.size());
+            return Mono.just(ResponseEntity.ok(response));
+        }
+
+        log.info("Enrichissement de {} favoris sur {}", toEnrich.size(), allFavorites.size());
+
+        return vintedApiService.enrichFavorites(toEnrich)
+                .then(Mono.fromCallable(() -> {
+                    Map<String, Object> response = new HashMap<>();
+                    response.put("success", true);
+                    response.put("message", "Enrichissement terminé");
+                    response.put("enriched", toEnrich.size());
+                    response.put("total", allFavorites.size());
+                    return ResponseEntity.ok(response);
+                }))
+                .onErrorResume(e -> {
+                    log.error("Erreur lors de l'enrichissement: {}", e.getMessage());
+                    Map<String, Object> error = new HashMap<>();
+                    error.put("success", false);
+                    error.put("message", e.getMessage());
+                    return Mono.just(ResponseEntity.badRequest().body(error));
+                });
+    }
+
     private Map<String, String> parseRawCookies(String rawCookies) {
         Map<String, String> cookies = new HashMap<>();
         String[] pairs = rawCookies.split(";");

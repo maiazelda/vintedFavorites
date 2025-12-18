@@ -41,7 +41,7 @@ node vinted-session-manager.js --email "votre-email" --password "votre-mot-de-pa
 # Mode headless (sans interface graphique)
 npm run refresh
 
-# Mode visible (avec navigateur visible - utile pour debug)
+# Mode visible (avec na vigateur visible - utile pour debug)
 npm run refresh:visible
 ```
 
