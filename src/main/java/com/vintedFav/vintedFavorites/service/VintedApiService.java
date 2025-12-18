@@ -315,6 +315,14 @@ public class VintedApiService {
                 return null;
             }
 
+            // Log DEBUG pour voir les champs disponibles dans l'API de détail
+            log.info("📦 API détail - Champs disponibles: {}", iteratorToString(item.fieldNames()));
+
+            // Log des champs importants pour category/gender
+            log.info("📦 API détail - catalog: {}", item.has("catalog") ? item.path("catalog") : "ABSENT");
+            log.info("📦 API détail - catalog_tree: {}", item.has("catalog_tree") ? item.path("catalog_tree") : "ABSENT");
+            log.info("📦 API détail - gender: {}", item.has("gender") ? item.path("gender") : "ABSENT");
+
             Favorite favorite = mapJsonToFavorite(item);
 
             // Enrichir avec les champs supplémentaires disponibles dans le détail
@@ -324,7 +332,7 @@ public class VintedApiService {
 
             return favorite;
         } catch (Exception e) {
-            log.debug("Erreur lors du parsing de l'article: {}", e.getMessage());
+            log.error("Erreur lors du parsing de l'article: {}", e.getMessage(), e);
             return null;
         }
     }
@@ -567,13 +575,12 @@ public class VintedApiService {
         // État/Condition (le champ "status" contient l'état)
         favorite.setCondition(getTextValue(item, "status"));
 
-        // Enrichir avec category, gender et listedDate si disponibles dans le JSON
-        enrichFavoriteWithDetails(favorite, item);
+        // NOTE: category, gender et listedDate ne sont PAS disponibles dans l'endpoint /favourites
+        // Ces champs seront enrichis via fetchItemDetails() qui appelle /api/v2/items/{id}
 
-        log.debug("Favori mappé: id={}, title={}, brand={}, price={}, category={}, gender={}, imageUrl={}",
+        log.debug("Favori mappé: id={}, title={}, brand={}, price={}, imageUrl={}",
                 favorite.getVintedId(), favorite.getTitle(), favorite.getBrand(),
-                favorite.getPrice(), favorite.getCategory(), favorite.getGender(),
-                favorite.getImageUrl() != null ? "présent" : "null");
+                favorite.getPrice(), favorite.getImageUrl() != null ? "présent" : "null");
 
         return favorite;
     }
