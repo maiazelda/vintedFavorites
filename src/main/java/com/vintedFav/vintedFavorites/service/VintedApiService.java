@@ -334,18 +334,27 @@ public class VintedApiService {
      * disponibles uniquement dans l'endpoint /api/v2/items/{id}
      */
     private void enrichFavoriteWithDetails(Favorite favorite, JsonNode item) {
+        // Log de debug pour voir tous les champs disponibles dans le JSON
+        log.debug("🔍 JSON fields disponibles pour item {}: {}", favorite.getVintedId(),
+                item.fieldNames() != null ? iteratorToString(item.fieldNames()) : "null");
+
         // Catégorie - depuis catalog_id ou catalog
         String category = null;
+
+        // 1. Essayer catalog.title
         JsonNode catalogNode = item.path("catalog");
-        if (!catalogNode.isMissingNode()) {
+        if (!catalogNode.isMissingNode() && !catalogNode.isNull()) {
             category = getTextValue(catalogNode, "title");
-            log.debug("Category from catalog.title: {}", category);
+            if (category != null) log.debug("Category from catalog.title: {}", category);
         }
+
+        // 2. Essayer catalog_title directement
         if (category == null) {
             category = getTextValue(item, "catalog_title");
             if (category != null) log.debug("Category from catalog_title: {}", category);
         }
-        // Essayer aussi catalog_tree pour avoir la catégorie parent
+
+        // 3. Essayer catalog_tree pour avoir la catégorie la plus spécifique
         if (category == null) {
             JsonNode catalogTree = item.path("catalog_tree");
             if (catalogTree.isArray() && catalogTree.size() > 0) {
@@ -355,40 +364,109 @@ public class VintedApiService {
             }
         }
 
-        // Si toujours pas de catégorie, essayer d'autres champs
+        // 4. Essayer category directement
         if (category == null) {
-            // Essayer depuis les métadonnées de la photo ou d'autres champs
+            category = getTextValue(item, "category");
+            if (category != null) log.debug("Category from category field: {}", category);
+        }
+
+        // 5. Essayer service_fee_catalog_title
+        if (category == null) {
             category = getTextValue(item, "service_fee_catalog_title");
             if (category != null) log.debug("Category from service_fee_catalog_title: {}", category);
         }
 
+        // 6. Essayer catalog_branch_title
         if (category == null) {
-            log.warn("⚠️  Category not found for item: {} (vintedId: {})", favorite.getTitle(), favorite.getVintedId());
+            category = getTextValue(item, "catalog_branch_title");
+            if (category != null) log.debug("Category from catalog_branch_title: {}", category);
+        }
+
+        if (category == null) {
+            log.warn("⚠️  Category not found for item: {} (vintedId: {}). JSON keys: {}",
+                    favorite.getTitle(), favorite.getVintedId(),
+                    iteratorToString(item.fieldNames()));
         }
         favorite.setCategory(category);
 
         // Genre - depuis gender ou catalog
-        String gender = getTextValue(item, "gender");
+        String gender = null;
+
+        // 1. Essayer gender directement
+        gender = getTextValue(item, "gender");
         if (gender != null) {
             log.debug("Gender from gender field: {}", gender);
         }
 
+        // 2. Essayer user.gender (genre du vendeur, pas toujours pertinent mais utile)
         if (gender == null) {
-            // Essayer d'extraire depuis la catégorie parente
+            JsonNode userNode = item.path("user");
+            if (!userNode.isMissingNode()) {
+                gender = getTextValue(userNode, "gender");
+                if (gender != null) log.debug("Gender from user.gender: {}", gender);
+            }
+        }
+
+        // 3. Inférer depuis catalog_tree
+        if (gender == null) {
             JsonNode catalogTree = item.path("catalog_tree");
             if (catalogTree.isArray() && catalogTree.size() > 0) {
-                String topCategory = getTextValue(catalogTree.get(0), "title");
-                if (topCategory != null) {
-                    if (topCategory.toLowerCase().contains("femme") || topCategory.toLowerCase().contains("women")) {
-                        gender = "Femme";
-                        log.debug("Gender inferred from catalog_tree: Femme");
-                    } else if (topCategory.toLowerCase().contains("homme") || topCategory.toLowerCase().contains("men")) {
-                        gender = "Homme";
-                        log.debug("Gender inferred from catalog_tree: Homme");
-                    } else if (topCategory.toLowerCase().contains("enfant") || topCategory.toLowerCase().contains("kids")) {
-                        gender = "Enfant";
-                        log.debug("Gender inferred from catalog_tree: Enfant");
+                // Parcourir tous les niveaux pour trouver un indicateur de genre
+                for (JsonNode categoryNode : catalogTree) {
+                    String catTitle = getTextValue(categoryNode, "title");
+                    if (catTitle != null) {
+                        String catLower = catTitle.toLowerCase();
+                        if (catLower.contains("femme") || catLower.contains("women") || catLower.equals("femmes")) {
+                            gender = "Femme";
+                            log.debug("Gender inferred from catalog_tree '{}': Femme", catTitle);
+                            break;
+                        } else if (catLower.contains("homme") || catLower.contains("men") || catLower.equals("hommes")) {
+                            gender = "Homme";
+                            log.debug("Gender inferred from catalog_tree '{}': Homme", catTitle);
+                            break;
+                        } else if (catLower.contains("enfant") || catLower.contains("kids") || catLower.contains("bébé") ||
+                                   catLower.contains("fille") || catLower.contains("garçon")) {
+                            gender = "Enfant";
+                            log.debug("Gender inferred from catalog_tree '{}': Enfant", catTitle);
+                            break;
+                        }
                     }
+                }
+            }
+        }
+
+        // 4. Inférer depuis catalog.title si disponible
+        if (gender == null && catalogNode != null && !catalogNode.isMissingNode()) {
+            String catalogTitle = getTextValue(catalogNode, "title");
+            if (catalogTitle != null) {
+                String catLower = catalogTitle.toLowerCase();
+                if (catLower.contains("femme") || catLower.contains("women")) {
+                    gender = "Femme";
+                    log.debug("Gender inferred from catalog.title '{}': Femme", catalogTitle);
+                } else if (catLower.contains("homme") || catLower.contains("men")) {
+                    gender = "Homme";
+                    log.debug("Gender inferred from catalog.title '{}': Homme", catalogTitle);
+                } else if (catLower.contains("enfant") || catLower.contains("kids")) {
+                    gender = "Enfant";
+                    log.debug("Gender inferred from catalog.title '{}': Enfant", catalogTitle);
+                }
+            }
+        }
+
+        // 5. Inférer depuis l'URL du produit
+        if (gender == null) {
+            String productUrl = getTextValue(item, "url");
+            if (productUrl != null) {
+                String urlLower = productUrl.toLowerCase();
+                if (urlLower.contains("/femmes/") || urlLower.contains("/women/")) {
+                    gender = "Femme";
+                    log.debug("Gender inferred from URL: Femme");
+                } else if (urlLower.contains("/hommes/") || urlLower.contains("/men/")) {
+                    gender = "Homme";
+                    log.debug("Gender inferred from URL: Homme");
+                } else if (urlLower.contains("/enfants/") || urlLower.contains("/kids/")) {
+                    gender = "Enfant";
+                    log.debug("Gender inferred from URL: Enfant");
                 }
             }
         }
@@ -411,6 +489,20 @@ public class VintedApiService {
 
         log.info("✓ Détails enrichis pour '{}': category={}, gender={}, listedDate={}",
                 favorite.getTitle(), favorite.getCategory(), favorite.getGender(), favorite.getListedDate());
+    }
+
+    /**
+     * Convertit un Iterator<String> en String pour le logging
+     */
+    private String iteratorToString(java.util.Iterator<String> iterator) {
+        if (iterator == null) return "null";
+        StringBuilder sb = new StringBuilder("[");
+        while (iterator.hasNext()) {
+            sb.append(iterator.next());
+            if (iterator.hasNext()) sb.append(", ");
+        }
+        sb.append("]");
+        return sb.toString();
     }
 
     private Favorite mapJsonToFavorite(JsonNode item) {
@@ -675,6 +767,26 @@ public class VintedApiService {
         existing.setTitle(updated.getTitle());
         existing.setImageUrl(updated.getImageUrl());
         existing.setCondition(updated.getCondition());
+
+        // Mettre à jour category et gender si disponibles dans la mise à jour
+        if (updated.getCategory() != null && existing.getCategory() == null) {
+            existing.setCategory(updated.getCategory());
+        }
+        if (updated.getGender() != null && existing.getGender() == null) {
+            existing.setGender(updated.getGender());
+        }
+        if (updated.getBrand() != null && existing.getBrand() == null) {
+            existing.setBrand(updated.getBrand());
+        }
+        if (updated.getSize() != null && existing.getSize() == null) {
+            existing.setSize(updated.getSize());
+        }
+        if (updated.getSellerName() != null && existing.getSellerName() == null) {
+            existing.setSellerName(updated.getSellerName());
+        }
+        if (updated.getListedDate() != null && existing.getListedDate() == null) {
+            existing.setListedDate(updated.getListedDate());
+        }
     }
 
     private Mono<List<Favorite>> fetchAllFavoritesPages() {
