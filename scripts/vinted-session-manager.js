@@ -130,37 +130,130 @@ async function login(page) {
         return true;
     }
 
-    // Click on login button
-    console.log('Clicking login button...');
+    // STEP 1: Click on "S'inscrire | Se connecter" button in header
+    console.log('Step 1: Clicking login button in header...');
     try {
-        // Try multiple selectors for the login button
-        const loginSelectors = [
+        const headerLoginSelectors = [
             '[data-testid="header--login-button"]',
-            'a[href*="login"]',
-            'button:has-text("Se connecter")',
+            'a:has-text("S\'inscrire")',
             'a:has-text("Se connecter")',
+            'button:has-text("S\'inscrire")',
+            'button:has-text("Se connecter")',
+            'a[href*="login"]',
             '.Header__login'
         ];
 
-        for (const selector of loginSelectors) {
-            const loginBtn = await page.$(selector);
-            if (loginBtn) {
-                await loginBtn.click();
-                break;
-            }
+        let clicked = false;
+        for (const selector of headerLoginSelectors) {
+            try {
+                const loginBtn = await page.$(selector);
+                if (loginBtn && await loginBtn.isVisible()) {
+                    console.log(`Found header login button with selector: ${selector}`);
+                    await loginBtn.click();
+                    clicked = true;
+                    break;
+                }
+            } catch (e) {}
+        }
+
+        if (!clicked) {
+            console.log('Could not find login button, trying direct URL...');
+            await page.goto(`${config.vintedUrl}/member/login`, { waitUntil: 'networkidle' });
         }
 
         await page.waitForTimeout(2000);
     } catch (e) {
-        console.log('Could not find login button, trying direct URL...');
+        console.log('Error clicking header login button:', e.message);
         await page.goto(`${config.vintedUrl}/member/login`, { waitUntil: 'networkidle' });
     }
 
-    // Wait for login form
-    await page.waitForTimeout(2000);
+    // STEP 2: Handle OAuth page - click on "Se connecter" link or "e-mail" link
+    console.log('Step 2: Checking for OAuth/intermediate page...');
+    await page.waitForTimeout(1500);
 
-    // Look for email/password fields
-    console.log('Filling login form...');
+    // Check if we're on the OAuth page (has Google/Apple/Facebook buttons)
+    const isOAuthPage = await page.evaluate(() => {
+        const pageText = document.body.innerText;
+        return pageText.includes('Continuer avec Google') ||
+               pageText.includes('Continuer avec Apple') ||
+               pageText.includes('Continuer avec Facebook') ||
+               pageText.includes('Bienvenue') ||
+               pageText.includes('Rejoins le mouvement');
+    });
+
+    if (isOAuthPage) {
+        console.log('OAuth page detected, looking for email login link...');
+
+        // Try to click on "Se connecter" or "e-mail" link to go to email form
+        const emailLoginSelectors = [
+            'a:has-text("e-mail")',
+            'a:has-text("E-mail")',
+            'a:has-text("ton e-mail")',
+            'a:has-text("ton adresse e-mail")',
+            // The "Se connecter" link for existing users (different from the OAuth buttons)
+            'a:has-text("Se connecter"):not(:has-text("Continuer"))',
+            'text=Se connecter >> nth=-1', // Last "Se connecter" link on page
+            'a[href*="login"]'
+        ];
+
+        let emailLinkClicked = false;
+        for (const selector of emailLoginSelectors) {
+            try {
+                console.log(`Trying email link selector: ${selector}`);
+                const emailLink = await page.$(selector);
+                if (emailLink && await emailLink.isVisible()) {
+                    console.log(`Found email login link with selector: ${selector}`);
+                    await emailLink.click();
+                    emailLinkClicked = true;
+                    break;
+                }
+            } catch (e) {
+                console.log(`Selector ${selector} failed: ${e.message}`);
+            }
+        }
+
+        if (!emailLinkClicked) {
+            // Try a more specific approach - look for the link at the bottom of the modal
+            console.log('Trying to find email link by text content...');
+            try {
+                // Look for links containing "mail" text
+                await page.click('a:text-matches("mail", "i")');
+                emailLinkClicked = true;
+            } catch (e) {
+                console.log('Could not find email link by text match');
+            }
+        }
+
+        if (!emailLinkClicked) {
+            // Last resort: try clicking "Se connecter" link (for existing users)
+            try {
+                const allLinks = await page.$$('a');
+                for (const link of allLinks) {
+                    const text = await link.textContent();
+                    if (text && text.trim() === 'Se connecter') {
+                        console.log('Found "Se connecter" link for existing users');
+                        await link.click();
+                        emailLinkClicked = true;
+                        break;
+                    }
+                }
+            } catch (e) {
+                console.log('Could not find Se connecter link');
+            }
+        }
+
+        if (!emailLinkClicked) {
+            console.log('WARNING: Could not find email login link on OAuth page');
+            await page.screenshot({ path: 'oauth-page-debug.png', fullPage: true });
+            console.log('Screenshot saved to oauth-page-debug.png for debugging');
+        }
+
+        await page.waitForTimeout(2000);
+    }
+
+    // STEP 3: Now we should be on the login form page
+    console.log('Step 3: Filling login form...');
+    await page.waitForTimeout(1000);
 
     // Try to find and fill email field
     const emailSelectors = [
@@ -171,7 +264,10 @@ async function login(page) {
         '#email',
         'input[placeholder*="mail"]',
         'input[placeholder*="Mail"]',
-        'input[placeholder*="E-mail"]'
+        'input[placeholder*="E-mail"]',
+        'input[placeholder*="Identifiant"]',
+        'input[placeholder*="identifiant"]',
+        'input[placeholder*="adresse"]'
     ];
 
     let emailFilled = false;
@@ -242,6 +338,7 @@ async function login(page) {
     console.log('Submitting login form...');
     const submitSelectors = [
         'button[type="submit"]',
+        'button:has-text("Continuer")',
         'button:has-text("Se connecter")',
         'button:has-text("Connexion")',
         '[data-testid="login-submit"]'
