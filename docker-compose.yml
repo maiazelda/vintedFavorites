@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  # Base de données PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: vinted-db
+    environment:
+      POSTGRES_DB: vinted_favorites
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-vintedpass123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vinted_favorites"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Application Spring Boot
+  app:
+    build: .
+    container_name: vinted-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Base de données
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/vinted_favorites
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-vintedpass123}
+
+      # Configuration Vinted - À PERSONNALISER
+      VINTED_USER_ID: ${VINTED_USER_ID:-11494046}
+      VINTED_COOKIES: ${VINTED_COOKIES:-}
+
+      # Configuration serveur
+      SERVER_PORT: 8080
+
+      # Synchronisation
+      VINTED_SYNC_ENABLED: ${VINTED_SYNC_ENABLED:-true}
+      VINTED_SYNC_ON_STARTUP: ${VINTED_SYNC_ON_STARTUP:-true}
+      VINTED_SYNC_INTERVAL: ${VINTED_SYNC_INTERVAL:-1800000}
+
+      # Rate limiting
+      VINTED_API_ENRICHMENT_DELAY: ${VINTED_API_ENRICHMENT_DELAY:-2000}
+      VINTED_API_MAX_ENRICHMENT_BATCH: ${VINTED_API_MAX_ENRICHMENT_BATCH:-20}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
