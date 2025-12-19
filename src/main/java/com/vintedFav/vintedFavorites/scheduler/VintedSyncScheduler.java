@@ -10,6 +10,8 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -30,8 +32,11 @@ public class VintedSyncScheduler {
     @Value("${vinted.cookies.initial:}")
     private String initialCookies;
 
+    @Value("${vinted.api.enrichment-delay:2000}")
+    private int enrichmentDelayMs;
+
     /**
-     * Au démarrage: charge les cookies, synchronise les favoris et enrichit les incomplets
+     * Au démarrage: charge les cookies, synchronise et enrichit TOUS les favoris incomplets
      */
     @EventListener(ApplicationReadyEvent.class)
     public void onApplicationReady() {
@@ -43,10 +48,10 @@ public class VintedSyncScheduler {
             cookieService.saveAllCookiesFromRawString(initialCookies, "vinted.fr");
         }
 
-        // Synchronisation + enrichissement au démarrage
+        // Synchronisation + enrichissement complet au démarrage
         if (syncEnabled && syncOnStartup) {
             log.info("Synchronisation au démarrage...");
-            syncAndEnrich();
+            syncAndEnrichAll();
         }
     }
 
@@ -60,13 +65,13 @@ public class VintedSyncScheduler {
         }
 
         log.info("=== Synchronisation périodique ===");
-        syncAndEnrich();
+        syncAndEnrichAll();
     }
 
     /**
-     * Synchronise les favoris puis enrichit les incomplets
+     * Synchronise les favoris puis enrichit TOUS les favoris incomplets (en boucle)
      */
-    private void syncAndEnrich() {
+    private void syncAndEnrichAll() {
         if (!vintedApiService.isSessionValid()) {
             log.warn("Session non valide - synchronisation ignorée");
             return;
@@ -76,18 +81,46 @@ public class VintedSyncScheduler {
                 .doOnSuccess(count -> {
                     log.info("Sync terminée: {} nouveaux favoris", count);
 
-                    // Enrichissement automatique après sync
+                    // Enrichissement complet: boucle tant qu'il y a des favoris incomplets
                     if (enrichOnStartup) {
-                        int toEnrich = vintedApiService.getFavoritesNeedingEnrichment().size();
-                        if (toEnrich > 0) {
-                            log.info("Démarrage enrichissement de {} favoris incomplets...", toEnrich);
-                            vintedApiService.enrichAllIncompleteFavorites()
-                                    .doOnTerminate(() -> log.info("Enrichissement automatique terminé"))
-                                    .subscribe();
-                        }
+                        enrichAllUntilComplete();
                     }
                 })
                 .doOnError(error -> log.error("Erreur synchronisation: {}", error.getMessage()))
+                .subscribe();
+    }
+
+    /**
+     * Enrichit les favoris en boucle jusqu'à ce qu'il n'y en ait plus à enrichir
+     */
+    private void enrichAllUntilComplete() {
+        int toEnrich = vintedApiService.getFavoritesNeedingEnrichment().size();
+
+        if (toEnrich == 0) {
+            log.info("✓ Tous les favoris sont complets");
+            return;
+        }
+
+        log.info("Démarrage enrichissement de {} favoris incomplets...", toEnrich);
+
+        vintedApiService.enrichAllIncompleteFavorites()
+                .doOnTerminate(() -> {
+                    // Vérifier s'il reste des favoris à enrichir
+                    int remaining = vintedApiService.getFavoritesNeedingEnrichment().size();
+                    if (remaining > 0) {
+                        log.info("Pause de 5s avant le prochain batch ({} favoris restants)...", remaining);
+                        // Attendre 5 secondes puis relancer
+                        try {
+                            Thread.sleep(5000);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
+                        enrichAllUntilComplete(); // Récursion
+                    } else {
+                        log.info("✓ Enrichissement complet terminé - tous les favoris sont à jour");
+                    }
+                })
                 .subscribe();
     }
 }
