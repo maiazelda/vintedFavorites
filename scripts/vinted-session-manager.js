@@ -102,19 +102,31 @@ async function sendToApi(sessionData) {
 async function login(page) {
     console.log('Navigating to Vinted login page...');
 
-    // Go to Vinted
-    await page.goto(config.vintedUrl, { waitUntil: 'networkidle' });
-
-    // Wait a bit for any popups/consent dialogs
-    await page.waitForTimeout(2000);
+    // Go directly to the login page
+    await page.goto(`${config.vintedUrl}/auth/login`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(3000);
 
     // Handle cookie consent if present
     try {
-        const acceptButton = await page.$('[data-testid="cookie-consent-accept-all"], #onetrust-accept-btn-handler, .cookie-consent-accept');
-        if (acceptButton) {
-            console.log('Accepting cookies consent...');
-            await acceptButton.click();
-            await page.waitForTimeout(1000);
+        const acceptSelectors = [
+            '[data-testid="cookie-consent-accept-all"]',
+            '#onetrust-accept-btn-handler',
+            'button:has-text("Accepter")',
+            'button:has-text("Tout accepter")',
+            '[id*="accept"]',
+            '[class*="accept"]'
+        ];
+
+        for (const selector of acceptSelectors) {
+            try {
+                const acceptButton = await page.$(selector);
+                if (acceptButton && await acceptButton.isVisible()) {
+                    console.log('Accepting cookies consent...');
+                    await acceptButton.click();
+                    await page.waitForTimeout(1000);
+                    break;
+                }
+            } catch (e) {}
         }
     } catch (e) {
         // No consent dialog, continue
@@ -122,7 +134,8 @@ async function login(page) {
 
     // Check if already logged in
     const isLoggedIn = await page.evaluate(() => {
-        return !!document.querySelector('[data-testid="header--avatar"], .Header__user-avatar, [class*="avatar"]');
+        return window.location.pathname.includes('/member') ||
+               !!document.querySelector('[data-testid*="avatar"], [class*="avatar"], [class*="user-menu"]');
     });
 
     if (isLoggedIn) {
@@ -130,148 +143,215 @@ async function login(page) {
         return true;
     }
 
-    // Click on login button
-    console.log('Clicking login button...');
-    try {
-        // Try multiple selectors for the login button
-        const loginSelectors = [
-            '[data-testid="header--login-button"]',
-            'a[href*="login"]',
-            'button:has-text("Se connecter")',
-            'a:has-text("Se connecter")',
-            '.Header__login'
-        ];
+    // Log the current URL and page state for debugging
+    console.log('Current URL:', page.url());
 
-        for (const selector of loginSelectors) {
-            const loginBtn = await page.$(selector);
-            if (loginBtn) {
-                await loginBtn.click();
-                break;
-            }
-        }
+    // Take a screenshot to see the current page state
+    await page.screenshot({ path: 'login-page-state.png', fullPage: true });
+    console.log('Screenshot saved to login-page-state.png');
 
-        await page.waitForTimeout(2000);
-    } catch (e) {
-        console.log('Could not find login button, trying direct URL...');
-        await page.goto(`${config.vintedUrl}/member/login`, { waitUntil: 'networkidle' });
-    }
-
-    // Wait for login form
+    // Wait for the page to fully load
     await page.waitForTimeout(2000);
 
-    // Look for email/password fields
-    console.log('Filling login form...');
+    // Try to find email input with multiple strategies
+    console.log('Looking for email input field...');
 
-    // Try to find and fill email field
+    // Strategy 1: Try to find all visible inputs and identify email field
+    const allInputs = await page.evaluate(() => {
+        const inputs = document.querySelectorAll('input');
+        return Array.from(inputs).map(input => ({
+            id: input.id,
+            name: input.name,
+            type: input.type,
+            placeholder: input.placeholder,
+            className: input.className,
+            visible: input.offsetParent !== null,
+            autocomplete: input.autocomplete
+        }));
+    });
+    console.log('Found inputs:', JSON.stringify(allInputs, null, 2));
+
+    // Try comprehensive email selectors
     const emailSelectors = [
         'input[name="email"]',
         'input[type="email"]',
-        'input[data-testid="email-input"]',
+        'input[id*="email"]',
+        'input[data-testid*="email"]',
         'input[autocomplete="email"]',
-        '#email',
+        'input[autocomplete="username"]',
         'input[placeholder*="mail"]',
         'input[placeholder*="Mail"]',
-        'input[placeholder*="E-mail"]'
+        'input[placeholder*="adresse"]',
+        'input[placeholder*="Adresse"]',
+        'input[aria-label*="email"]',
+        'input[aria-label*="mail"]',
+        // Generic first visible text input
+        'form input[type="text"]:first-of-type',
+        'form input:not([type="password"]):not([type="hidden"]):first-of-type'
     ];
 
     let emailFilled = false;
     for (const selector of emailSelectors) {
         try {
-            console.log(`Trying email selector: ${selector}`);
-            await page.waitForSelector(selector, { timeout: 3000 });
             const emailInput = await page.$(selector);
-            if (emailInput && await emailInput.isVisible()) {
-                await emailInput.click();
-                await page.waitForTimeout(500);
-                await emailInput.fill(config.email);
-                emailFilled = true;
-                console.log(`Email filled using selector: ${selector}`);
-                break;
+            if (emailInput) {
+                const isVisible = await emailInput.isVisible();
+                if (isVisible) {
+                    console.log(`Found email field with selector: ${selector}`);
+                    await emailInput.click();
+                    await page.waitForTimeout(300);
+                    await emailInput.fill(config.email);
+                    emailFilled = true;
+                    console.log('Email filled successfully');
+                    break;
+                }
             }
         } catch (e) {
-            console.log(`Selector ${selector} not found`);
+            // Continue to next selector
         }
     }
 
     if (!emailFilled) {
-        console.error('Could not find email input field');
-        console.log('Saving debug screenshot...');
-        await page.screenshot({ path: 'email-field-not-found.png', fullPage: true });
-        return false;
+        console.error('Could not find email input field with standard selectors');
+
+        // Last resort: try to type into any focused element or first input
+        try {
+            console.log('Trying keyboard-based approach...');
+            await page.keyboard.press('Tab');
+            await page.waitForTimeout(500);
+            await page.keyboard.type(config.email, { delay: 50 });
+            emailFilled = true;
+            console.log('Email typed via keyboard');
+        } catch (e) {
+            console.error('Keyboard approach also failed');
+            await page.screenshot({ path: 'email-field-not-found.png', fullPage: true });
+            return false;
+        }
     }
 
-    // Wait a bit before password
+    // Wait before password
     await page.waitForTimeout(500);
 
     // Try to find and fill password field
     const passwordSelectors = [
-        'input[name="password"]',
         'input[type="password"]',
-        'input[data-testid="password-input"]',
+        'input[name="password"]',
+        'input[id*="password"]',
+        'input[data-testid*="password"]',
         'input[autocomplete="current-password"]',
-        '#password'
+        'input[placeholder*="mot de passe"]',
+        'input[placeholder*="Mot de passe"]',
+        'input[placeholder*="password"]'
     ];
 
     let passwordFilled = false;
     for (const selector of passwordSelectors) {
         try {
-            console.log(`Trying password selector: ${selector}`);
-            await page.waitForSelector(selector, { timeout: 3000 });
             const passwordInput = await page.$(selector);
-            if (passwordInput && await passwordInput.isVisible()) {
-                await passwordInput.click();
-                await page.waitForTimeout(500);
-                await passwordInput.fill(config.password);
-                passwordFilled = true;
-                console.log(`Password filled using selector: ${selector}`);
-                break;
+            if (passwordInput) {
+                const isVisible = await passwordInput.isVisible();
+                if (isVisible) {
+                    console.log(`Found password field with selector: ${selector}`);
+                    await passwordInput.click();
+                    await page.waitForTimeout(300);
+                    await passwordInput.fill(config.password);
+                    passwordFilled = true;
+                    console.log('Password filled successfully');
+                    break;
+                }
             }
         } catch (e) {
-            console.log(`Selector ${selector} not found`);
+            // Continue to next selector
         }
     }
 
     if (!passwordFilled) {
         console.error('Could not find password input field');
-        console.log('Saving debug screenshot...');
-        await page.screenshot({ path: 'password-field-not-found.png', fullPage: true });
-        return false;
+
+        // Try keyboard approach
+        try {
+            console.log('Trying keyboard-based approach for password...');
+            await page.keyboard.press('Tab');
+            await page.waitForTimeout(500);
+            await page.keyboard.type(config.password, { delay: 50 });
+            passwordFilled = true;
+            console.log('Password typed via keyboard');
+        } catch (e) {
+            console.error('Keyboard approach for password also failed');
+            await page.screenshot({ path: 'password-field-not-found.png', fullPage: true });
+            return false;
+        }
     }
 
     // Submit the form
     console.log('Submitting login form...');
+
     const submitSelectors = [
         'button[type="submit"]',
+        'form button:not([type="button"])',
         'button:has-text("Se connecter")',
         'button:has-text("Connexion")',
-        '[data-testid="login-submit"]'
+        'button:has-text("Continuer")',
+        '[data-testid*="submit"]',
+        '[data-testid*="login"]'
     ];
 
+    let submitted = false;
     for (const selector of submitSelectors) {
         try {
             const submitBtn = await page.$(selector);
-            if (submitBtn) {
+            if (submitBtn && await submitBtn.isVisible()) {
+                console.log(`Clicking submit button with selector: ${selector}`);
                 await submitBtn.click();
+                submitted = true;
                 break;
             }
         } catch (e) {}
+    }
+
+    if (!submitted) {
+        // Try pressing Enter
+        console.log('Trying Enter key to submit...');
+        await page.keyboard.press('Enter');
     }
 
     // Wait for login to complete
     console.log('Waiting for login to complete...');
     await page.waitForTimeout(5000);
 
+    // Check current URL
+    const currentUrl = page.url();
+    console.log('URL after login attempt:', currentUrl);
+
     // Check if login was successful
     const loginSuccess = await page.evaluate(() => {
-        return !!document.querySelector('[data-testid="header--avatar"], .Header__user-avatar, [class*="avatar"]') ||
-               window.location.pathname === '/';
+        // Check various indicators of being logged in
+        const hasAvatar = !!document.querySelector('[data-testid*="avatar"], [class*="avatar"], [class*="user-menu"]');
+        const isOnMemberPage = window.location.pathname.includes('/member');
+        const hasLogoutOption = !!document.querySelector('[data-testid*="logout"], [class*="logout"]');
+        const notOnLoginPage = !window.location.pathname.includes('/login') && !window.location.pathname.includes('/auth');
+
+        return hasAvatar || isOnMemberPage || hasLogoutOption || notOnLoginPage;
     });
 
     if (loginSuccess) {
         console.log('Login successful!');
         return true;
     } else {
-        console.error('Login may have failed. Check for CAPTCHA or 2FA.');
+        console.error('Login may have failed. Taking screenshot...');
+        await page.screenshot({ path: 'login-result.png', fullPage: true });
+        console.log('Screenshot saved to login-result.png');
+
+        // Check for error messages
+        const errorMessage = await page.evaluate(() => {
+            const errorEl = document.querySelector('[class*="error"], [class*="alert"], [role="alert"]');
+            return errorEl ? errorEl.textContent : null;
+        });
+
+        if (errorMessage) {
+            console.log('Error message on page:', errorMessage);
+        }
+
         return false;
     }
 }
