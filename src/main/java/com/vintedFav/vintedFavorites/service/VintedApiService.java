@@ -56,49 +56,106 @@ public class VintedApiService {
     @Value("${vinted.api.max-enrichment-batch:50}")
     private int maxEnrichmentBatch;
 
-    // ==================== SYNC ALL (avec enrichissement automatique) ====================
+    // ==================== SYNCHRONISATION COMPLETE ====================
 
     /**
-     * Synchronise tous les favoris ET les enrichit automatiquement
-     * C'est la méthode principale à appeler
+     * Synchronise tous les favoris avec enrichissement intégré.
+     * Chaque favori est complètement récupéré (API + HTML) avant sauvegarde.
      */
     public Mono<Integer> syncAllFavorites() {
-        log.info("=== SYNCHRONISATION DES FAVORIS ===");
+        log.info("=== SYNCHRONISATION COMPLETE DES FAVORIS ===");
         return fetchAllFavoritesPages()
-                .flatMap(favorites -> {
-                    int savedCount = saveFavorites(favorites);
-                    log.info("Synchronisation: {} nouveaux favoris sur {} total", savedCount, favorites.size());
-
-                    // Enrichissement automatique intégré
-                    return enrichAllUntilComplete()
-                            .thenReturn(savedCount);
-                });
+                .flatMap(this::processAllFavoritesWithEnrichment);
     }
 
-    private int saveFavorites(List<Favorite> favorites) {
-        int savedCount = 0;
-        for (Favorite favorite : favorites) {
-            try {
+    private Mono<Integer> processAllFavoritesWithEnrichment(List<Favorite> favorites) {
+        if (favorites.isEmpty()) {
+            log.info("Aucun favori à synchroniser");
+            return Mono.just(0);
+        }
+
+        log.info("Traitement de {} favoris...", favorites.size());
+        AtomicInteger processedCount = new AtomicInteger(0);
+        AtomicInteger newCount = new AtomicInteger(0);
+
+        return processNextFavorite(favorites, 0, processedCount, newCount)
+                .then(Mono.fromCallable(() -> {
+                    log.info("=== SYNCHRONISATION TERMINÉE: {} nouveaux sur {} total ===",
+                            newCount.get(), favorites.size());
+                    return newCount.get();
+                }));
+    }
+
+    private Mono<Void> processNextFavorite(List<Favorite> favorites, int index,
+                                           AtomicInteger processedCount, AtomicInteger newCount) {
+        if (index >= favorites.size()) {
+            return Mono.empty();
+        }
+
+        Favorite favorite = favorites.get(index);
+        boolean isNew = favoriteService.getFavoritesByVintedId(favorite.getVintedId()).isEmpty();
+
+        // Délai entre chaque appel pour respecter le rate limiting
+        return Mono.delay(Duration.ofMillis(enrichmentDelayMs))
+                .then(enrichFavoriteFromHtml(favorite))
+                .then(Mono.fromRunnable(() -> {
+                    saveFavorite(favorite, isNew);
+                    processedCount.incrementAndGet();
+                    if (isNew) newCount.incrementAndGet();
+
+                    // Log de progression tous les 10 favoris
+                    if (processedCount.get() % 10 == 0 || processedCount.get() == favorites.size()) {
+                        log.info("Progression: {}/{} (nouveaux: {})",
+                                processedCount.get(), favorites.size(), newCount.get());
+                    }
+                }))
+                .then(Mono.defer(() -> processNextFavorite(favorites, index + 1, processedCount, newCount)));
+    }
+
+    private Mono<Void> enrichFavoriteFromHtml(Favorite favorite) {
+        // Si déjà complet, pas besoin de scraper
+        if (favorite.getCategory() != null && favorite.getGender() != null) {
+            return Mono.empty();
+        }
+
+        return fetchItemHtml(favorite.getVintedId())
+                .doOnNext(html -> {
+                    String gender = extractGenderFromBreadcrumb(html);
+                    String category = extractCategoryFromBreadcrumb(html);
+
+                    if (gender != null) favorite.setGender(gender);
+                    if (category != null) favorite.setCategory(category);
+
+                    if (gender != null || category != null) {
+                        log.debug("Enrichi: {} -> {} {}", favorite.getTitle(), category, gender);
+                    }
+                })
+                .onErrorResume(e -> {
+                    log.debug("Erreur enrichissement {}: {}", favorite.getVintedId(), e.getMessage());
+                    return Mono.empty();
+                })
+                .then();
+    }
+
+    private void saveFavorite(Favorite favorite, boolean isNew) {
+        try {
+            if (isNew) {
+                favoriteService.saveFavorite(favorite);
+            } else {
                 var existing = favoriteService.getFavoritesByVintedId(favorite.getVintedId());
-                if (existing.isEmpty()) {
-                    favoriteService.saveFavorite(favorite);
-                    savedCount++;
-                } else {
+                if (!existing.isEmpty()) {
                     Favorite existingFavorite = existing.get(0);
                     updateExistingFavorite(existingFavorite, favorite);
                     favoriteService.saveFavorite(existingFavorite);
                 }
-            } catch (Exception e) {
-                log.error("Erreur sauvegarde favori: {}", e.getMessage());
             }
+        } catch (Exception e) {
+            log.error("Erreur sauvegarde {}: {}", favorite.getVintedId(), e.getMessage());
         }
-        return savedCount;
     }
 
-    // ==================== ENRICHISSEMENT EN BOUCLE ====================
-
     /**
-     * Enrichit TOUS les favoris incomplets en boucle jusqu'à complétion
+     * Force l'enrichissement des favoris incomplets uniquement
      */
     public Mono<Void> enrichAllUntilComplete() {
         List<Favorite> toEnrich = getFavoritesNeedingEnrichment();
@@ -108,59 +165,40 @@ public class VintedApiService {
             return Mono.empty();
         }
 
-        log.info("=== ENRICHISSEMENT: {} favoris incomplets ===", toEnrich.size());
-        return enrichBatchRecursively(toEnrich, 0);
-    }
-
-    private Mono<Void> enrichBatchRecursively(List<Favorite> allToEnrich, int startIndex) {
-        if (startIndex >= allToEnrich.size()) {
-            log.info("✓ ENRICHISSEMENT TERMINÉ");
-            return Mono.empty();
-        }
-
-        int endIndex = Math.min(startIndex + maxEnrichmentBatch, allToEnrich.size());
-        List<Favorite> batch = allToEnrich.subList(startIndex, endIndex);
-
-        log.info("Batch {}-{}/{}", startIndex + 1, endIndex, allToEnrich.size());
-
-        AtomicInteger enrichedCount = new AtomicInteger(0);
+        log.info("Enrichissement de {} favoris incomplets...", toEnrich.size());
         AtomicInteger index = new AtomicInteger(0);
+        AtomicInteger enrichedCount = new AtomicInteger(0);
 
-        return enrichNextFavorite(batch, index, enrichedCount)
-                .then(Mono.defer(() -> {
-                    log.info("Batch terminé: {}/{} enrichis", enrichedCount.get(), batch.size());
-
-                    if (endIndex < allToEnrich.size()) {
-                        log.info("Pause 5s avant prochain batch...");
-                        return Mono.delay(Duration.ofSeconds(5))
-                                .then(enrichBatchRecursively(allToEnrich, endIndex));
-                    }
-                    return Mono.empty();
-                }));
+        return enrichNextIncomplete(toEnrich, index, enrichedCount)
+                .then(Mono.fromRunnable(() ->
+                    log.info("✓ Enrichissement terminé: {}/{}", enrichedCount.get(), toEnrich.size())));
     }
 
-    private Mono<Void> enrichNextFavorite(List<Favorite> favorites, AtomicInteger index, AtomicInteger enrichedCount) {
-        int currentIndex = index.getAndIncrement();
-        if (currentIndex >= favorites.size()) {
+    private Mono<Void> enrichNextIncomplete(List<Favorite> favorites, AtomicInteger index, AtomicInteger enrichedCount) {
+        int i = index.getAndIncrement();
+        if (i >= favorites.size()) {
             return Mono.empty();
         }
 
-        Favorite favorite = favorites.get(currentIndex);
+        Favorite favorite = favorites.get(i);
 
         return Mono.delay(Duration.ofMillis(enrichmentDelayMs))
-                .then(fetchItemDetails(favorite.getVintedId()))
-                .doOnNext(details -> {
-                    if (details.getCategory() != null) favorite.setCategory(details.getCategory());
-                    if (details.getGender() != null) favorite.setGender(details.getGender());
-                    favoriteService.saveFavorite(favorite);
-                    enrichedCount.incrementAndGet();
-                    log.info("Enrichi: {} -> {}, {}", favorite.getTitle(), favorite.getCategory(), favorite.getGender());
+                .then(fetchItemHtml(favorite.getVintedId()))
+                .doOnNext(html -> {
+                    String gender = extractGenderFromBreadcrumb(html);
+                    String category = extractCategoryFromBreadcrumb(html);
+
+                    if (gender != null) favorite.setGender(gender);
+                    if (category != null) favorite.setCategory(category);
+
+                    if (gender != null || category != null) {
+                        favoriteService.saveFavorite(favorite);
+                        enrichedCount.incrementAndGet();
+                        log.info("Enrichi: {} -> {} {}", favorite.getTitle(), category, gender);
+                    }
                 })
-                .onErrorResume(e -> {
-                    log.debug("Erreur enrichissement {}: {}", favorite.getVintedId(), e.getMessage());
-                    return Mono.empty();
-                })
-                .then(Mono.defer(() -> enrichNextFavorite(favorites, index, enrichedCount)));
+                .onErrorResume(e -> Mono.empty())
+                .then(Mono.defer(() -> enrichNextIncomplete(favorites, index, enrichedCount)));
     }
 
     public List<Favorite> getFavoritesNeedingEnrichment() {
@@ -204,14 +242,9 @@ public class VintedApiService {
                 });
     }
 
-    // ==================== FETCH ITEM DETAILS (HTML SCRAPING) ====================
+    // ==================== FETCH ITEM HTML ====================
 
-    public Mono<Favorite> fetchItemDetails(String itemId) {
-        return authService.ensureValidToken()
-                .flatMap(valid -> fetchItemDetailsFromHtml(itemId));
-    }
-
-    private Mono<Favorite> fetchItemDetailsFromHtml(String itemId) {
+    private Mono<String> fetchItemHtml(String itemId) {
         String cookieHeader = cookieService.buildCookieHeader();
         String url = baseUrl + "/items/" + itemId;
 
@@ -226,31 +259,7 @@ public class VintedApiService {
                         return response.bodyToMono(String.class);
                     }
                     return Mono.empty();
-                })
-                .flatMap(html -> parseItemFromHtml(html, itemId))
-                .onErrorResume(e -> Mono.empty());
-    }
-
-    // ==================== HTML PARSING ====================
-
-    private Mono<Favorite> parseItemFromHtml(String html, String itemId) {
-        try {
-            Favorite favorite = new Favorite();
-            favorite.setVintedId(itemId);
-
-            String gender = extractGenderFromBreadcrumb(html);
-            String category = extractCategoryFromBreadcrumb(html);
-
-            if (gender != null) favorite.setGender(gender);
-            if (category != null) favorite.setCategory(category);
-
-            if (favorite.getGender() != null || favorite.getCategory() != null) {
-                return Mono.just(favorite);
-            }
-            return Mono.empty();
-        } catch (Exception e) {
-            return Mono.empty();
-        }
+                });
     }
 
     private String extractGenderFromBreadcrumb(String html) {
