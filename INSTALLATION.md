@@ -59,10 +59,19 @@ Enregistrez le fichier.
 
 1. Assurez-vous que **Docker Desktop** est ouvert
 2. Double-cliquez sur **start.bat**
-3. Attendez que le téléchargement et le démarrage se terminent (2-3 min la première fois)
+3. Attendez que le téléchargement et le démarrage se terminent (5-10 min la première fois)
 4. L'application s'ouvre automatiquement dans votre navigateur
 
-**L'application est accessible sur :** http://localhost:8080
+**L'application est accessible sur :** http://localhost:3000
+
+---
+
+## Utilisation
+
+Une fois l'application lancée :
+- Vos favoris Vinted se synchronisent automatiquement
+- Utilisez les filtres pour trier par marque, catégorie, genre...
+- Cliquez sur un article pour l'ouvrir sur Vinted
 
 ---
 
@@ -88,3 +97,12 @@ En cas de problème :
 - Vérifiez que Docker Desktop est bien lancé (icône dans la barre des tâches)
 - Vérifiez que le fichier `.env` existe (pas `.env.example`)
 - Vérifiez que vous avez bien copié vos cookies en entier
+
+---
+
+## Architecture
+
+L'application se compose de 3 services Docker :
+- **PostgreSQL** : Base de données pour stocker vos favoris
+- **Backend** : API Spring Boot qui communique avec Vinted
+- **Frontend** : Interface web React accessible sur le port 3000

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, X, Edit2, Trash2, ShoppingBag, AlertCircle, Menu, ChevronLeft, Tag, Users, Grid, TrendingUp, RefreshCw, Search, Sparkles } from 'lucide-react';
 
-// URL de votre API Spring Boot
-const API_BASE_URL = 'http://localhost:8080/api/favorites';
+// URL de l'API - utilise une URL relative pour fonctionner avec nginx en production
+// ou la variable d'environnement REACT_APP_API_URL pour le développement local
+const API_BASE_URL = process.env.REACT_APP_API_URL || '/api/favorites';
 
 const VintedFavoritesApp = () => {
   // ========================================
@@ -141,7 +142,7 @@ const VintedFavoritesApp = () => {
       setEnriching(true);
       setError(null);
       setEnrichMessage(null);
-      const response = await fetch('http://localhost:8080/api/vinted/favorites/enrich', {
+      const response = await fetch('/api/vinted/favorites/enrich', {
         method: 'POST'
       });
       const data = await response.json();

@@ -67,12 +67,11 @@ echo    APPLICATION DEMARREE AVEC SUCCES!
 echo ===============================================
 echo.
 echo L'application est accessible sur:
-echo    http://localhost:8080
+echo    http://localhost:3000
 echo.
 echo Pour arreter l'application:
 echo    Executez "stop.bat"
 echo.
 echo Appuyez sur une touche pour ouvrir l'application...
 pause > nul
-start http://localhost:8080/api/favorites
-
+start http://localhost:3000
