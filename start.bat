@@ -2,6 +2,9 @@
 title Vinted Favorites
 chcp 65001 > nul
 
+REM Se déplacer vers le dossier du script (important pour le double-clic)
+cd /d "%~dp0"
+
 echo.
 echo ===============================================
 echo    VINTED FAVORITES - Demarrage
@@ -23,24 +26,36 @@ if not exist ".env" (
     exit /b 1
 )
 
-REM Vérifier si Docker est installé
-docker --version > nul 2>&1
+REM Chercher Docker - d'abord dans le PATH, sinon dans le chemin par défaut
+set DOCKER_CMD=docker
+set DOCKER_COMPOSE_CMD=docker compose
+
+where docker > nul 2>&1
 if errorlevel 1 (
-    echo [ERREUR] Docker n'est pas installe!
-    echo.
-    echo Installez Docker Desktop depuis:
-    echo https://www.docker.com/products/docker-desktop/
-    echo.
-    pause
-    exit /b 1
+    REM Docker pas dans le PATH, chercher dans le chemin par défaut
+    if exist "C:\Program Files\Docker\Docker\resources\bin\docker.exe" (
+        set DOCKER_CMD="C:\Program Files\Docker\Docker\resources\bin\docker.exe"
+        set DOCKER_COMPOSE_CMD="C:\Program Files\Docker\Docker\resources\bin\docker.exe" compose
+    ) else (
+        echo [ERREUR] Docker n'est pas installe ou introuvable!
+        echo.
+        echo Installez Docker Desktop depuis:
+        echo https://www.docker.com/products/docker-desktop/
+        echo.
+        echo Si Docker est deja installe, redemarrez votre ordinateur.
+        echo.
+        pause
+        exit /b 1
+    )
 )
 
 REM Vérifier si Docker est démarré
-docker info > nul 2>&1
+%DOCKER_CMD% info > nul 2>&1
 if errorlevel 1 (
     echo [ERREUR] Docker n'est pas demarre!
     echo.
-    echo Lancez Docker Desktop et reessayez.
+    echo Lancez Docker Desktop et attendez qu'il soit pret.
+    echo (L'icone baleine doit etre visible en bas a droite)
     echo.
     pause
     exit /b 1
@@ -49,14 +64,16 @@ if errorlevel 1 (
 echo [OK] Docker est installe et demarre
 echo.
 echo Demarrage de l'application...
-echo (Cela peut prendre quelques minutes la premiere fois)
+echo (Cela peut prendre 5-10 minutes la premiere fois)
 echo.
 
-docker-compose up --build -d
+%DOCKER_COMPOSE_CMD% up --build -d
 
 if errorlevel 1 (
     echo.
     echo [ERREUR] Probleme lors du demarrage!
+    echo.
+    echo Essayez de relancer le script.
     pause
     exit /b 1
 )
