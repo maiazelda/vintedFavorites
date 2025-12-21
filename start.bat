@@ -31,46 +31,64 @@ if not exist ".env" (
 echo [OK] Fichier .env trouve
 echo.
 
-REM Chercher Docker - d'abord dans le PATH, sinon dans le chemin par défaut
-set DOCKER_CMD=docker
-set DOCKER_COMPOSE_CMD=docker compose
+REM Chercher Docker
+set DOCKER_PATH=
+set DOCKER_FOUND=0
 
-where docker > nul 2>&1
-if errorlevel 1 (
-    echo Docker pas dans le PATH, recherche dans Program Files...
-    REM Docker pas dans le PATH, chercher dans le chemin par défaut
-    if exist "C:\Program Files\Docker\Docker\resources\bin\docker.exe" (
-        set DOCKER_CMD="C:\Program Files\Docker\Docker\resources\bin\docker.exe"
-        set DOCKER_COMPOSE_CMD="C:\Program Files\Docker\Docker\resources\bin\docker.exe" compose
-        echo [OK] Docker trouve dans Program Files
-    ) else (
-        echo [ERREUR] Docker n'est pas installe ou introuvable!
-        echo.
-        echo Installez Docker Desktop depuis:
-        echo https://www.docker.com/products/docker-desktop/
-        echo.
-        echo Si Docker est deja installe, redemarrez votre ordinateur.
-        echo.
-        pause
-        exit /b 1
-    )
-) else (
+REM Essayer dans le PATH
+where docker.exe > nul 2>&1
+if %errorlevel% equ 0 (
+    for /f "delims=" %%i in ('where docker.exe') do set DOCKER_PATH=%%i
+    set DOCKER_FOUND=1
     echo [OK] Docker trouve dans le PATH
+    echo     %DOCKER_PATH%
 )
 
-echo.
-echo Verification que Docker est demarre...
-%DOCKER_CMD% info > nul 2>&1
-if errorlevel 1 (
-    echo [ERREUR] Docker n'est pas demarre!
+REM Si pas trouvé, essayer Program Files
+if %DOCKER_FOUND% equ 0 (
+    echo Docker pas dans le PATH, recherche dans Program Files...
+    if exist "C:\Program Files\Docker\Docker\resources\bin\docker.exe" (
+        set "DOCKER_PATH=C:\Program Files\Docker\Docker\resources\bin\docker.exe"
+        set DOCKER_FOUND=1
+        echo [OK] Docker trouve dans Program Files
+    )
+)
+
+if %DOCKER_FOUND% equ 0 (
+    echo [ERREUR] Docker n'est pas installe ou introuvable!
     echo.
-    echo Lancez Docker Desktop et attendez qu'il soit pret.
-    echo (L'icone baleine doit etre visible en bas a droite)
+    echo Installez Docker Desktop depuis:
+    echo https://www.docker.com/products/docker-desktop/
     echo.
     pause
     exit /b 1
 )
 
+echo.
+echo Test de la version Docker...
+"%DOCKER_PATH%" --version
+echo.
+
+echo Verification que Docker est demarre...
+echo (Commande: docker info)
+echo.
+"%DOCKER_PATH%" info
+set DOCKER_INFO_RESULT=%errorlevel%
+
+if %DOCKER_INFO_RESULT% neq 0 (
+    echo.
+    echo [ERREUR] Docker n'est pas pret! Code erreur: %DOCKER_INFO_RESULT%
+    echo.
+    echo Solutions possibles:
+    echo 1. Ouvrez Docker Desktop
+    echo 2. Attendez que l'icone baleine soit stable (pas d'animation)
+    echo 3. Essayez de redemarrer Docker Desktop
+    echo.
+    pause
+    exit /b 1
+)
+
+echo.
 echo [OK] Docker est demarre
 echo.
 echo ===============================================
@@ -80,7 +98,7 @@ echo ===============================================
 echo.
 
 REM Lancer docker compose et afficher la sortie
-%DOCKER_COMPOSE_CMD% up --build -d
+"%DOCKER_PATH%" compose up --build -d
 set BUILD_RESULT=%errorlevel%
 
 echo.
