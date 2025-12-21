@@ -174,7 +174,6 @@ public class VintedSyncController {
 
     /**
      * Force l'enrichissement des favoris incomplets (sans category ou gender)
-     * Utile si la synchronisation initiale n'a pas pu récupérer tous les détails
      */
     @PostMapping("/favorites/enrich")
     public Mono<ResponseEntity<Map<String, Object>>> enrichIncompleteFavorites() {
@@ -187,30 +186,27 @@ public class VintedSyncController {
             return Mono.just(ResponseEntity.badRequest().body(error));
         }
 
-        // Récupérer tous les favoris qui ont besoin d'enrichissement
-        List<com.vintedFav.vintedFavorites.model.Favorite> allFavorites = favoriteService.getAllFavorites();
-        List<com.vintedFav.vintedFavorites.model.Favorite> toEnrich = allFavorites.stream()
-                .filter(f -> f.getCategory() == null || f.getGender() == null)
-                .toList();
+        int toEnrichCount = vintedApiService.getFavoritesNeedingEnrichment().size();
+        int totalCount = favoriteService.getAllFavorites().size();
 
-        if (toEnrich.isEmpty()) {
+        if (toEnrichCount == 0) {
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("message", "Tous les favoris sont déjà complets");
             response.put("enriched", 0);
-            response.put("total", allFavorites.size());
+            response.put("total", totalCount);
             return Mono.just(ResponseEntity.ok(response));
         }
 
-        log.info("Enrichissement de {} favoris sur {}", toEnrich.size(), allFavorites.size());
+        log.info("Enrichissement de {} favoris sur {}", toEnrichCount, totalCount);
 
-        return vintedApiService.enrichFavorites(toEnrich)
+        return vintedApiService.enrichAllUntilComplete()
                 .then(Mono.fromCallable(() -> {
                     Map<String, Object> response = new HashMap<>();
                     response.put("success", true);
                     response.put("message", "Enrichissement terminé");
-                    response.put("enriched", toEnrich.size());
-                    response.put("total", allFavorites.size());
+                    response.put("enriched", toEnrichCount);
+                    response.put("total", totalCount);
                     return ResponseEntity.ok(response);
                 }))
                 .onErrorResume(e -> {

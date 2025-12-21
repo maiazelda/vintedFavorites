@@ -3,20 +3,15 @@ package com.vintedFav.vintedFavorites.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintedFav.vintedFavorites.model.Favorite;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -58,615 +53,363 @@ public class VintedApiService {
     @Value("${vinted.api.enrichment-delay:2000}")
     private int enrichmentDelayMs;
 
-    @Value("${vinted.api.max-enrichment-batch:20}")
+    @Value("${vinted.api.max-enrichment-batch:50}")
     private int maxEnrichmentBatch;
 
-    public Mono<List<Favorite>> fetchFavorites(int page, int perPage) {
-        // Vérifier d'abord si le token est expiré et le rafraîchir si nécessaire
-        return authService.ensureValidToken()
-                .flatMap(valid -> fetchFavoritesInternal(page, perPage, false));
-    }
-
-    private Mono<List<Favorite>> fetchFavoritesInternal(int page, int perPage, boolean isRetry) {
-        // Récupérer les cookies frais après un éventuel refresh
-        String cookieHeader = cookieService.buildCookieHeader();
-
-        if (cookieHeader.isEmpty()) {
-            log.warn("Aucun cookie actif trouvé. Veuillez d'abord configurer les cookies.");
-            return Mono.error(new RuntimeException("Cookies non configurés"));
-        }
-
-        if (userId == null || userId.isEmpty()) {
-            log.error("User ID non configuré. Veuillez définir vinted.api.user-id dans application.properties");
-            return Mono.error(new RuntimeException("User ID non configuré"));
-        }
-
-        String url = baseUrl + "/api/v2/users/" + userId + "/items/favourites?page=" + page + "&per_page=" + perPage;
-        log.info("Appel API Vinted: {}", url);
-
-        // Récupérer les headers supplémentaires
-        String csrfToken = cookieService.getCsrfToken();
-        String anonId = cookieService.getAnonId();
-
-        var requestSpec = webClient.get()
-                .uri(url)
-                .header(HttpHeaders.COOKIE, cookieHeader)
-                .header(HttpHeaders.USER_AGENT, userAgent)
-                .header(HttpHeaders.ACCEPT, "application/json, text/plain, */*")
-                .header("Accept-Language", "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7")
-                .header(HttpHeaders.REFERER, "https://www.vinted.fr/")
-                .header(HttpHeaders.ORIGIN, "https://www.vinted.fr")
-                .header("Sec-Fetch-Dest", "empty")
-                .header("Sec-Fetch-Mode", "cors")
-                .header("Sec-Fetch-Site", "same-origin")
-                .header("Sec-Ch-Ua", "\"Google Chrome\";v=\"142\", \"Chromium\";v=\"142\", \"Not_A Brand\";v=\"99\"")
-                .header("Sec-Ch-Ua-Mobile", "?0")
-                .header("Sec-Ch-Ua-Platform", "\"Windows\"");
-
-        // Ajouter X-Csrf-Token si disponible
-        if (csrfToken != null && !csrfToken.isEmpty()) {
-            requestSpec = requestSpec.header("X-Csrf-Token", csrfToken);
-        }
-        // Ajouter X-Anon-Id si disponible
-        if (anonId != null && !anonId.isEmpty()) {
-            requestSpec = requestSpec.header("X-Anon-Id", anonId);
-        }
-
-        return requestSpec
-                .exchangeToMono(response -> handleResponse(response))
-                .map(this::parseFavoritesResponse)
-                .onErrorResume(e -> {
-                    if (!isRetry && e.getMessage() != null && e.getMessage().contains("401")) {
-                        log.warn("Erreur 401 - Tentative de refresh token...");
-                        return authService.refreshAccessToken()
-                                .flatMap(success -> {
-                                    if (success) {
-                                        log.info("Token rafraîchi, nouvelle tentative...");
-                                        return fetchFavoritesInternal(page, perPage, true);
-                                    }
-                                    return Mono.error(e);
-                                });
-                    }
-                    return Mono.error(e);
-                });
-    }
-
-    public Mono<Favorite> fetchItemDetails(String itemId) {
-        return authService.ensureValidToken()
-                .flatMap(valid -> fetchItemDetailsInternal(itemId, false));
-    }
-
-    private Mono<Favorite> fetchItemDetailsInternal(String itemId, boolean isRetry) {
-        String cookieHeader = cookieService.buildCookieHeader();
-
-        if (cookieHeader.isEmpty()) {
-            return Mono.error(new RuntimeException("Cookies non configurés"));
-        }
-
-        String url = baseUrl + "/api/v2/items/" + itemId;
-        log.debug("Récupération des détails de l'article: {}", itemId);
-
-        // Récupérer les headers supplémentaires
-        String csrfToken = cookieService.getCsrfToken();
-        String anonId = cookieService.getAnonId();
-
-        var requestSpec = webClient.get()
-                .uri(url)
-                .header(HttpHeaders.COOKIE, cookieHeader)
-                .header(HttpHeaders.USER_AGENT, userAgent)
-                .header(HttpHeaders.ACCEPT, "application/json, text/plain, */*")
-                .header("Accept-Language", "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7")
-                .header(HttpHeaders.REFERER, "https://www.vinted.fr/items/" + itemId)
-                .header(HttpHeaders.ORIGIN, "https://www.vinted.fr")
-                .header("Sec-Fetch-Dest", "empty")
-                .header("Sec-Fetch-Mode", "cors")
-                .header("Sec-Fetch-Site", "same-origin")
-                .header("Sec-Ch-Ua", "\"Google Chrome\";v=\"142\", \"Chromium\";v=\"142\", \"Not_A Brand\";v=\"99\"")
-                .header("Sec-Ch-Ua-Mobile", "?0")
-                .header("Sec-Ch-Ua-Platform", "\"Windows\"");
-
-        // Ajouter X-Csrf-Token si disponible
-        if (csrfToken != null && !csrfToken.isEmpty()) {
-            requestSpec = requestSpec.header("X-Csrf-Token", csrfToken);
-        }
-        // Ajouter X-Anon-Id si disponible
-        if (anonId != null && !anonId.isEmpty()) {
-            requestSpec = requestSpec.header("X-Anon-Id", anonId);
-        }
-
-        return requestSpec
-                .exchangeToMono(response -> handleItemDetailsResponse(response, itemId))
-                .flatMap(body -> {
-                    if (body == null) {
-                        return Mono.empty(); // Article non trouvé (404)
-                    }
-                    Favorite favorite = parseItemResponse(body);
-                    return favorite != null ? Mono.just(favorite) : Mono.empty();
-                })
-                .onErrorResume(e -> {
-                    if (!isRetry && e.getMessage() != null && e.getMessage().contains("401")) {
-                        log.warn("Erreur 401 sur item {} - Tentative de refresh token...", itemId);
-                        return authService.refreshAccessToken()
-                                .flatMap(success -> {
-                                    if (success) {
-                                        return fetchItemDetailsInternal(itemId, true);
-                                    }
-                                    return Mono.empty();
-                                });
-                    }
-                    log.debug("Erreur sur item {}: {}", itemId, e.getMessage());
-                    return Mono.empty();
-                });
-    }
+    // ==================== SYNC ALL (avec enrichissement automatique) ====================
 
     /**
-     * Handler spécifique pour les détails d'articles - gère les 404 gracieusement
+     * Synchronise tous les favoris ET les enrichit automatiquement
+     * C'est la méthode principale à appeler
      */
-    private Mono<String> handleItemDetailsResponse(ClientResponse response, String itemId) {
-        // Gérer les cookies de la réponse
-        response.headers().header(HttpHeaders.SET_COOKIE).forEach(setCookie -> {
-            log.debug("Cookie reçu: {}", setCookie);
-            cookieService.updateCookiesFromResponse(setCookie);
-        });
-
-        if (response.statusCode().is2xxSuccessful()) {
-            return response.bodyToMono(String.class);
-        } else if (response.statusCode().value() == 404) {
-            // Article supprimé ou non disponible - c'est normal, on ignore
-            log.debug("Article {} non trouvé (404) - probablement supprimé ou vendu", itemId);
-            return Mono.just(""); // Retourner une chaîne vide pour indiquer "non trouvé"
-        } else if (response.statusCode().value() == 401 || response.statusCode().value() == 403) {
-            int statusCode = response.statusCode().value();
-            return Mono.error(new RuntimeException("Erreur " + statusCode + " - Session expirée"));
-        } else {
-            log.warn("Erreur API pour article {}: {}", itemId, response.statusCode());
-            return Mono.just(""); // Ignorer les autres erreurs
-        }
-    }
-
-    private Mono<String> handleResponse(ClientResponse response) {
-        // Gérer les cookies de la réponse
-        response.headers().header(HttpHeaders.SET_COOKIE).forEach(setCookie -> {
-            log.debug("Cookie reçu: {}", setCookie);
-            cookieService.updateCookiesFromResponse(setCookie);
-        });
-
-        if (response.statusCode().is2xxSuccessful()) {
-            return response.bodyToMono(String.class);
-        } else if (response.statusCode().value() == 401 || response.statusCode().value() == 403) {
-            int statusCode = response.statusCode().value();
-            log.error("Session expirée ou non autorisée ({}). Veuillez mettre à jour les cookies.", statusCode);
-
-            // Déclencher un rafraîchissement automatique de session si les credentials sont configurés
-            if (sessionService != null && sessionService.hasCredentials() && !sessionService.isRefreshInProgress()) {
-                log.info("Déclenchement du rafraîchissement automatique de session...");
-                sessionService.refreshSession()
-                        .thenAccept(success -> {
-                            if (success) {
-                                log.info("Session rafraîchie automatiquement - réessayez la requête");
-                            } else {
-                                log.error("Échec du rafraîchissement automatique de session");
-                            }
-                        });
-            }
-
-            return Mono.error(new RuntimeException("Erreur " + statusCode + " - Session expirée"));
-        } else {
-            log.error("Erreur API Vinted: {}", response.statusCode());
-            return response.bodyToMono(String.class)
-                    .flatMap(body -> Mono.error(new RuntimeException("Erreur API: " + response.statusCode() + " - " + body)));
-        }
-    }
-
-    private List<Favorite> parseFavoritesResponse(String responseBody) {
-        List<Favorite> favorites = new ArrayList<>();
-
-        try {
-            JsonNode root = objectMapper.readTree(responseBody);
-
-            // Log pour debug - afficher la structure de la réponse
-            log.debug("Structure de la réponse: {}", root.toString().substring(0, Math.min(500, root.toString().length())));
-
-            // L'API favorites peut retourner les items dans différents chemins
-            JsonNode items = root.path("items");
-            if (items.isMissingNode() || !items.isArray()) {
-                items = root.path("favourite_items");
-            }
-            if (items.isMissingNode() || !items.isArray()) {
-                items = root.path("item_favourites");
-            }
-
-            if (items.isArray()) {
-                for (JsonNode itemWrapper : items) {
-                    // Les favoris peuvent être wrappés dans un objet "item"
-                    JsonNode item = itemWrapper.path("item");
-                    if (item.isMissingNode()) {
-                        item = itemWrapper;
-                    }
-
-                    Favorite favorite = mapJsonToFavorite(item);
-                    if (favorite != null) {
-                        favorites.add(favorite);
-                    }
-                }
-            }
-            log.info("Nombre de favoris récupérés: {}", favorites.size());
-        } catch (Exception e) {
-            log.error("Erreur lors du parsing de la réponse: {}", e.getMessage());
-            log.debug("Réponse brute: {}", responseBody);
-        }
-
-        return favorites;
-    }
-
-    private Favorite parseItemResponse(String responseBody) {
-        // Réponse vide = article non trouvé
-        if (responseBody == null || responseBody.isEmpty()) {
-            return null;
-        }
-
-        try {
-            JsonNode root = objectMapper.readTree(responseBody);
-            JsonNode item = root.path("item");
-
-            // Vérifier que la réponse contient bien un item
-            if (item.isMissingNode()) {
-                log.debug("Réponse sans 'item' - structure inattendue");
-                return null;
-            }
-
-            Favorite favorite = mapJsonToFavorite(item);
-
-            // Enrichir avec les champs supplémentaires disponibles dans le détail
-            if (favorite != null) {
-                enrichFavoriteWithDetails(favorite, item);
-            }
-
-            return favorite;
-        } catch (Exception e) {
-            log.debug("Erreur lors du parsing de l'article: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Enrichit un favori avec les champs détaillés (category, gender, listedDate)
-     * disponibles uniquement dans l'endpoint /api/v2/items/{id}
-     */
-    private void enrichFavoriteWithDetails(Favorite favorite, JsonNode item) {
-        // Catégorie - depuis catalog_id ou catalog
-        String category = null;
-        JsonNode catalogNode = item.path("catalog");
-        if (!catalogNode.isMissingNode()) {
-            category = getTextValue(catalogNode, "title");
-            log.debug("Category from catalog.title: {}", category);
-        }
-        if (category == null) {
-            category = getTextValue(item, "catalog_title");
-            if (category != null) log.debug("Category from catalog_title: {}", category);
-        }
-        // Essayer aussi catalog_tree pour avoir la catégorie parent
-        if (category == null) {
-            JsonNode catalogTree = item.path("catalog_tree");
-            if (catalogTree.isArray() && catalogTree.size() > 0) {
-                // Prendre la dernière catégorie (la plus spécifique)
-                category = getTextValue(catalogTree.get(catalogTree.size() - 1), "title");
-                if (category != null) log.debug("Category from catalog_tree[last]: {}", category);
-            }
-        }
-
-        // Si toujours pas de catégorie, essayer d'autres champs
-        if (category == null) {
-            // Essayer depuis les métadonnées de la photo ou d'autres champs
-            category = getTextValue(item, "service_fee_catalog_title");
-            if (category != null) log.debug("Category from service_fee_catalog_title: {}", category);
-        }
-
-        if (category == null) {
-            log.warn("⚠️  Category not found for item: {} (vintedId: {})", favorite.getTitle(), favorite.getVintedId());
-        }
-        favorite.setCategory(category);
-
-        // Genre - depuis gender ou catalog
-        String gender = getTextValue(item, "gender");
-        if (gender != null) {
-            log.debug("Gender from gender field: {}", gender);
-        }
-
-        if (gender == null) {
-            // Essayer d'extraire depuis la catégorie parente
-            JsonNode catalogTree = item.path("catalog_tree");
-            if (catalogTree.isArray() && catalogTree.size() > 0) {
-                String topCategory = getTextValue(catalogTree.get(0), "title");
-                if (topCategory != null) {
-                    if (topCategory.toLowerCase().contains("femme") || topCategory.toLowerCase().contains("women")) {
-                        gender = "Femme";
-                        log.debug("Gender inferred from catalog_tree: Femme");
-                    } else if (topCategory.toLowerCase().contains("homme") || topCategory.toLowerCase().contains("men")) {
-                        gender = "Homme";
-                        log.debug("Gender inferred from catalog_tree: Homme");
-                    } else if (topCategory.toLowerCase().contains("enfant") || topCategory.toLowerCase().contains("kids")) {
-                        gender = "Enfant";
-                        log.debug("Gender inferred from catalog_tree: Enfant");
-                    }
-                }
-            }
-        }
-
-        if (gender == null) {
-            log.warn("⚠️  Gender not found for item: {} (vintedId: {})", favorite.getTitle(), favorite.getVintedId());
-        }
-        favorite.setGender(gender);
-
-        // Date de publication - created_at_ts est un timestamp Unix
-        long createdTimestamp = item.path("created_at_ts").asLong(0);
-        if (createdTimestamp == 0) {
-            createdTimestamp = item.path("created_at").asLong(0);
-        }
-        if (createdTimestamp > 0) {
-            favorite.setListedDate(LocalDateTime.ofInstant(
-                    Instant.ofEpochSecond(createdTimestamp),
-                    ZoneId.systemDefault()));
-        }
-
-        log.info("✓ Détails enrichis pour '{}': category={}, gender={}, listedDate={}",
-                favorite.getTitle(), favorite.getCategory(), favorite.getGender(), favorite.getListedDate());
-    }
-
-    private Favorite mapJsonToFavorite(JsonNode item) {
-        if (item == null || item.isMissingNode()) {
-            return null;
-        }
-
-        Favorite favorite = new Favorite();
-
-        // ID (peut être un nombre)
-        JsonNode idNode = item.path("id");
-        if (!idNode.isMissingNode()) {
-            favorite.setVintedId(idNode.isNumber() ? String.valueOf(idNode.asLong()) : idNode.asText());
-        }
-
-        // Titre
-        favorite.setTitle(getTextValue(item, "title"));
-
-        // Brand - le champ est "brand_title" directement
-        favorite.setBrand(getTextValue(item, "brand_title"));
-
-        // Prix - nested object avec "amount"
-        JsonNode priceNode = item.path("price");
-        if (!priceNode.isMissingNode()) {
-            String priceStr = getTextValue(priceNode, "amount");
-            if (priceStr != null) {
-                try {
-                    favorite.setPrice(Double.parseDouble(priceStr.replace(",", ".")));
-                } catch (NumberFormatException e) {
-                    log.warn("Impossible de parser le prix: {}", priceStr);
-                }
-            }
-        }
-
-        // Image URL - le champ est "photo" (pas "photos")
-        JsonNode photo = item.path("photo");
-        if (!photo.isMissingNode()) {
-            String imageUrl = getTextValue(photo, "url");
-            if (imageUrl == null) {
-                imageUrl = getTextValue(photo, "full_size_url");
-            }
-            favorite.setImageUrl(imageUrl);
-        }
-
-        // URL du produit
-        favorite.setProductUrl(getTextValue(item, "url"));
-
-        // Vendu (is_closed)
-        favorite.setSold(item.path("is_closed").asBoolean(false));
-
-        // Vendeur
-        JsonNode user = item.path("user");
-        if (!user.isMissingNode()) {
-            favorite.setSellerName(getTextValue(user, "login"));
-        }
-
-        // Taille
-        String size = getTextValue(item, "size_title");
-        if (size == null) size = getTextValue(item, "size");
-        favorite.setSize(size);
-
-        // État/Condition (le champ "status" contient l'état)
-        favorite.setCondition(getTextValue(item, "status"));
-
-        // Enrichir avec category, gender et listedDate si disponibles dans le JSON
-        enrichFavoriteWithDetails(favorite, item);
-
-        log.debug("Favori mappé: id={}, title={}, brand={}, price={}, category={}, gender={}, imageUrl={}",
-                favorite.getVintedId(), favorite.getTitle(), favorite.getBrand(),
-                favorite.getPrice(), favorite.getCategory(), favorite.getGender(),
-                favorite.getImageUrl() != null ? "présent" : "null");
-
-        return favorite;
-    }
-
-    private String getFirstNonNull(JsonNode node, String... fields) {
-        for (String field : fields) {
-            String value = getTextValue(node, field);
-            if (value != null && !value.isEmpty()) {
-                return value;
-            }
-        }
-        return null;
-    }
-
-    private String getTextValue(JsonNode node, String field) {
-        JsonNode fieldNode = node.path(field);
-        if (fieldNode.isMissingNode() || fieldNode.isNull()) {
-            return null;
-        }
-        return fieldNode.asText();
-    }
-
-    private Double getDoubleValue(JsonNode node, String field) {
-        JsonNode fieldNode = node.path(field);
-        if (fieldNode.isMissingNode() || fieldNode.isNull()) {
-            return null;
-        }
-        // Vinted retourne parfois le prix comme string
-        if (fieldNode.isTextual()) {
-            try {
-                return Double.parseDouble(fieldNode.asText().replace(",", "."));
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
-        return fieldNode.asDouble();
-    }
-
     public Mono<Integer> syncAllFavorites() {
+        log.info("=== SYNCHRONISATION DES FAVORIS ===");
         return fetchAllFavoritesPages()
                 .flatMap(favorites -> {
-                    int savedCount = 0;
-                    List<Favorite> favoritesToEnrich = new ArrayList<>();
+                    int savedCount = saveFavorites(favorites);
+                    log.info("Synchronisation: {} nouveaux favoris sur {} total", savedCount, favorites.size());
 
-                    for (Favorite favorite : favorites) {
-                        try {
-                            // Vérifier si l'article existe déjà
-                            var existing = favoriteService.getFavoritesByVintedId(favorite.getVintedId());
-                            if (existing.isEmpty()) {
-                                favoriteService.saveFavorite(favorite);
-                                savedCount++;
-
-                                // Toujours enrichir les nouveaux favoris si category ou gender manquent
-                                if (needsEnrichment(favorite)) {
-                                    favoritesToEnrich.add(favorite);
-                                    log.info("Nouveau favori sauvegardé (besoin d'enrichissement): {}", favorite.getTitle());
-                                } else {
-                                    log.info("Nouveau favori sauvegardé (complet): {}", favorite.getTitle());
-                                }
-                            } else {
-                                // Mettre à jour les informations existantes
-                                Favorite existingFavorite = existing.get(0);
-                                updateExistingFavorite(existingFavorite, favorite);
-                                favoriteService.saveFavorite(existingFavorite);
-
-                                // Enrichir si les détails manquent
-                                if (needsEnrichment(existingFavorite)) {
-                                    favoritesToEnrich.add(existingFavorite);
-                                }
-                                log.debug("Favori mis à jour: {}", favorite.getTitle());
-                            }
-                        } catch (Exception e) {
-                            log.error("Erreur lors de la sauvegarde du favori: {}", e.getMessage());
-                        }
-                    }
-
-                    final int finalSavedCount = savedCount;
-
-                    // Enrichir les favoris qui en ont besoin
-                    if (!favoritesToEnrich.isEmpty()) {
-                        log.info("Enrichissement de {} favoris avec les détails...", favoritesToEnrich.size());
-                        return enrichFavorites(favoritesToEnrich)
-                                .thenReturn(finalSavedCount);
-                    }
-
-                    return Mono.just(finalSavedCount);
+                    // Enrichissement automatique intégré
+                    return enrichAllUntilComplete()
+                            .thenReturn(savedCount);
                 });
     }
 
-    /**
-     * Vérifie si un favori a besoin d'être enrichi avec les détails
-     */
-    private boolean needsEnrichment(Favorite favorite) {
-        return favorite.getCategory() == null ||
-               favorite.getGender() == null ||
-               favorite.getListedDate() == null;
+    private int saveFavorites(List<Favorite> favorites) {
+        int savedCount = 0;
+        for (Favorite favorite : favorites) {
+            try {
+                var existing = favoriteService.getFavoritesByVintedId(favorite.getVintedId());
+                if (existing.isEmpty()) {
+                    favoriteService.saveFavorite(favorite);
+                    savedCount++;
+                } else {
+                    Favorite existingFavorite = existing.get(0);
+                    updateExistingFavorite(existingFavorite, favorite);
+                    favoriteService.saveFavorite(existingFavorite);
+                }
+            } catch (Exception e) {
+                log.error("Erreur sauvegarde favori: {}", e.getMessage());
+            }
+        }
+        return savedCount;
     }
 
+    // ==================== ENRICHISSEMENT EN BOUCLE ====================
+
     /**
-     * Enrichit une liste de favoris avec les détails (category, gender, listedDate)
-     * en appelant l'API de détail pour chaque article
-     * IMPORTANT: Limite le nombre de favoris enrichis pour éviter le rate limiting (429)
+     * Enrichit TOUS les favoris incomplets en boucle jusqu'à complétion
      */
-    public Mono<Void> enrichFavorites(List<Favorite> favorites) {
-        if (favorites.isEmpty()) {
+    public Mono<Void> enrichAllUntilComplete() {
+        List<Favorite> toEnrich = getFavoritesNeedingEnrichment();
+
+        if (toEnrich.isEmpty()) {
+            log.info("✓ Tous les favoris sont complets");
             return Mono.empty();
         }
 
-        // Limiter le nombre de favoris à enrichir pour éviter le rate limiting
-        List<Favorite> limitedFavorites = favorites.size() > maxEnrichmentBatch
-                ? favorites.subList(0, maxEnrichmentBatch)
-                : favorites;
+        log.info("=== ENRICHISSEMENT: {} favoris incomplets ===", toEnrich.size());
+        return enrichBatchRecursively(toEnrich, 0);
+    }
 
-        if (favorites.size() > maxEnrichmentBatch) {
-            log.warn("⚠️  Limitation: enrichissement de {} favoris sur {} pour éviter le rate limiting (429). " +
-                    "Relancez l'enrichissement pour continuer.", maxEnrichmentBatch, favorites.size());
+    private Mono<Void> enrichBatchRecursively(List<Favorite> allToEnrich, int startIndex) {
+        if (startIndex >= allToEnrich.size()) {
+            log.info("✓ ENRICHISSEMENT TERMINÉ");
+            return Mono.empty();
         }
+
+        int endIndex = Math.min(startIndex + maxEnrichmentBatch, allToEnrich.size());
+        List<Favorite> batch = allToEnrich.subList(startIndex, endIndex);
+
+        log.info("Batch {}-{}/{}", startIndex + 1, endIndex, allToEnrich.size());
 
         AtomicInteger enrichedCount = new AtomicInteger(0);
         AtomicInteger index = new AtomicInteger(0);
-        AtomicInteger errorCount = new AtomicInteger(0);
 
-        return Mono.defer(() -> enrichNextFavorite(limitedFavorites, index, enrichedCount, errorCount))
-                .doOnTerminate(() -> {
-                    log.info("Enrichissement terminé: {}/{} favoris enrichis, {} erreurs",
-                            enrichedCount.get(), limitedFavorites.size(), errorCount.get());
-                    if (favorites.size() > maxEnrichmentBatch) {
-                        log.info("💡 Astuce: {} favoris restants. Relancez POST /api/vinted/favorites/enrich",
-                                favorites.size() - maxEnrichmentBatch);
+        return enrichNextFavorite(batch, index, enrichedCount)
+                .then(Mono.defer(() -> {
+                    log.info("Batch terminé: {}/{} enrichis", enrichedCount.get(), batch.size());
+
+                    if (endIndex < allToEnrich.size()) {
+                        log.info("Pause 5s avant prochain batch...");
+                        return Mono.delay(Duration.ofSeconds(5))
+                                .then(enrichBatchRecursively(allToEnrich, endIndex));
                     }
-                });
+                    return Mono.empty();
+                }));
     }
 
-    private Mono<Void> enrichNextFavorite(List<Favorite> favorites, AtomicInteger index,
-                                          AtomicInteger enrichedCount, AtomicInteger errorCount) {
+    private Mono<Void> enrichNextFavorite(List<Favorite> favorites, AtomicInteger index, AtomicInteger enrichedCount) {
         int currentIndex = index.getAndIncrement();
         if (currentIndex >= favorites.size()) {
             return Mono.empty();
         }
 
         Favorite favorite = favorites.get(currentIndex);
-        log.info("Enrichissement {}/{}: {} (délai: {}ms)",
-                currentIndex + 1, favorites.size(), favorite.getTitle(), enrichmentDelayMs);
 
-        return fetchItemDetails(favorite.getVintedId())
-                .delaySubscription(Duration.ofMillis(enrichmentDelayMs)) // Délai configurable pour éviter le rate limiting
-                .retryWhen(reactor.util.retry.Retry.backoff(2, Duration.ofSeconds(5))
-                        .filter(throwable -> throwable.getMessage() != null &&
-                                (throwable.getMessage().contains("429") ||
-                                 throwable.getMessage().contains("Too Many Requests")))
-                        .doBeforeRetry(signal ->
-                            log.warn("⚠️  Erreur 429 sur {}, retry #{} dans {}s...",
-                                    favorite.getTitle(),
-                                    signal.totalRetries() + 1,
-                                    5 * Math.pow(2, signal.totalRetries())
-                            )
-                        )
-                )
+        return Mono.delay(Duration.ofMillis(enrichmentDelayMs))
+                .then(fetchItemDetails(favorite.getVintedId()))
                 .doOnNext(details -> {
-                    // Mettre à jour le favori avec les détails
-                    favorite.setCategory(details.getCategory());
-                    favorite.setGender(details.getGender());
-                    favorite.setListedDate(details.getListedDate());
+                    if (details.getCategory() != null) favorite.setCategory(details.getCategory());
+                    if (details.getGender() != null) favorite.setGender(details.getGender());
                     favoriteService.saveFavorite(favorite);
                     enrichedCount.incrementAndGet();
-                    log.info("✅ Favori enrichi: {} - category={}, gender={}, listedDate={}",
-                            favorite.getTitle(), details.getCategory(), details.getGender(), details.getListedDate());
+                    log.info("Enrichi: {} -> {}, {}", favorite.getTitle(), favorite.getCategory(), favorite.getGender());
                 })
-                .switchIfEmpty(Mono.defer(() -> {
-                    log.debug("Article {} non disponible pour enrichissement (404 ou supprimé)", favorite.getTitle());
-                    return Mono.empty();
-                }))
                 .onErrorResume(e -> {
-                    errorCount.incrementAndGet();
-                    if (e.getMessage() != null && (e.getMessage().contains("429") || e.getMessage().contains("Too Many Requests"))) {
-                        log.error("❌ Rate limiting (429) après retries sur {}: {}. Arrêt de l'enrichissement pour éviter le blocage.",
-                                favorite.getTitle(), e.getMessage());
-                        // Arrêter complètement l'enrichissement en cas de 429 persistant
-                        return Mono.error(new RuntimeException("Rate limiting (429) détecté. Attendez quelques minutes avant de relancer."));
-                    } else {
-                        log.warn("⚠️  Erreur enrichissement {} (continuant): {}", favorite.getTitle(), e.getMessage());
-                        return Mono.empty();
-                    }
+                    log.debug("Erreur enrichissement {}: {}", favorite.getVintedId(), e.getMessage());
+                    return Mono.empty();
                 })
-                .then(Mono.defer(() -> enrichNextFavorite(favorites, index, enrichedCount, errorCount)));
+                .then(Mono.defer(() -> enrichNextFavorite(favorites, index, enrichedCount)));
+    }
+
+    public List<Favorite> getFavoritesNeedingEnrichment() {
+        return favoriteService.getAllFavorites().stream()
+                .filter(f -> f.getCategory() == null || f.getGender() == null)
+                .toList();
+    }
+
+    // ==================== FETCH FAVORITES ====================
+
+    public Mono<List<Favorite>> fetchFavorites(int page, int perPage) {
+        return authService.ensureValidToken()
+                .flatMap(valid -> fetchFavoritesInternal(page, perPage, false));
+    }
+
+    private Mono<List<Favorite>> fetchFavoritesInternal(int page, int perPage, boolean isRetry) {
+        String cookieHeader = cookieService.buildCookieHeader();
+
+        if (cookieHeader.isEmpty()) {
+            log.warn("Aucun cookie actif trouvé");
+            return Mono.error(new RuntimeException("Cookies non configurés"));
+        }
+
+        if (userId == null || userId.isEmpty()) {
+            log.error("User ID non configuré");
+            return Mono.error(new RuntimeException("User ID non configuré"));
+        }
+
+        String url = baseUrl + "/api/v2/users/" + userId + "/items/favourites?page=" + page + "&per_page=" + perPage;
+
+        return buildRequest(url, cookieHeader)
+                .exchangeToMono(this::handleResponse)
+                .map(this::parseFavoritesResponse)
+                .onErrorResume(e -> {
+                    if (!isRetry && e.getMessage() != null && e.getMessage().contains("401")) {
+                        log.warn("Erreur 401 - Tentative de refresh token...");
+                        return authService.refreshAccessToken()
+                                .flatMap(success -> success ? fetchFavoritesInternal(page, perPage, true) : Mono.error(e));
+                    }
+                    return Mono.error(e);
+                });
+    }
+
+    // ==================== FETCH ITEM DETAILS (HTML SCRAPING) ====================
+
+    public Mono<Favorite> fetchItemDetails(String itemId) {
+        return authService.ensureValidToken()
+                .flatMap(valid -> fetchItemDetailsFromHtml(itemId));
+    }
+
+    private Mono<Favorite> fetchItemDetailsFromHtml(String itemId) {
+        String cookieHeader = cookieService.buildCookieHeader();
+        String url = baseUrl + "/items/" + itemId;
+
+        return webClient.get()
+                .uri(url)
+                .header(HttpHeaders.COOKIE, cookieHeader)
+                .header(HttpHeaders.USER_AGENT, userAgent)
+                .header(HttpHeaders.ACCEPT, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "fr-FR,fr;q=0.9")
+                .exchangeToMono(response -> {
+                    if (response.statusCode().is2xxSuccessful()) {
+                        return response.bodyToMono(String.class);
+                    }
+                    return Mono.empty();
+                })
+                .flatMap(html -> parseItemFromHtml(html, itemId))
+                .onErrorResume(e -> Mono.empty());
+    }
+
+    // ==================== HTML PARSING ====================
+
+    private Mono<Favorite> parseItemFromHtml(String html, String itemId) {
+        try {
+            Favorite favorite = new Favorite();
+            favorite.setVintedId(itemId);
+
+            String gender = extractGenderFromBreadcrumb(html);
+            String category = extractCategoryFromBreadcrumb(html);
+
+            if (gender != null) favorite.setGender(gender);
+            if (category != null) favorite.setCategory(category);
+
+            if (favorite.getGender() != null || favorite.getCategory() != null) {
+                return Mono.just(favorite);
+            }
+            return Mono.empty();
+        } catch (Exception e) {
+            return Mono.empty();
+        }
+    }
+
+    private String extractGenderFromBreadcrumb(String html) {
+        String searchArea = html.substring(0, Math.min(html.length(), 100000)).toLowerCase();
+
+        if (searchArea.contains("/hommes") || searchArea.contains(">hommes<")) return "Homme";
+        if (searchArea.contains("/femmes") || searchArea.contains(">femmes<")) return "Femme";
+        if (searchArea.contains("/enfants") || searchArea.contains(">enfants<")) return "Enfant";
+        return null;
+    }
+
+    private String extractCategoryFromBreadcrumb(String html) {
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+            "href=\"/[^\"]*?/([^/\"]+)\"[^>]*>([^<]+)</a>\\s*(?:/|$)",
+            java.util.regex.Pattern.CASE_INSENSITIVE
+        );
+
+        java.util.List<String> categories = new java.util.ArrayList<>();
+        java.util.regex.Matcher matcher = pattern.matcher(html);
+
+        while (matcher.find()) {
+            String linkText = matcher.group(2).trim();
+            if (!linkText.equalsIgnoreCase("Accueil") &&
+                !linkText.equalsIgnoreCase("Hommes") &&
+                !linkText.equalsIgnoreCase("Femmes") &&
+                !linkText.equalsIgnoreCase("Enfants") &&
+                !linkText.isEmpty()) {
+                categories.add(linkText);
+            }
+        }
+
+        if (categories.isEmpty()) {
+            String[] commonCategories = {
+                "Pantalons", "Pantalon", "Robes", "Robe", "Chemises", "Chemise",
+                "T-shirts", "T-shirt", "Vestes", "Veste", "Manteaux", "Manteau",
+                "Chaussures", "Pulls", "Pull", "Jeans", "Jean", "Shorts", "Short",
+                "Jupes", "Jupe", "Blazers", "Blazer", "Sweats", "Sweat",
+                "Accessoires", "Sacs", "Sac", "Bijoux", "Montres"
+            };
+
+            for (String cat : commonCategories) {
+                if (html.contains(">" + cat + "<") || html.contains(">" + cat + " ")) {
+                    return cat;
+                }
+            }
+        }
+
+        return categories.isEmpty() ? null : categories.get(categories.size() - 1);
+    }
+
+    // ==================== HELPERS ====================
+
+    private WebClient.RequestHeadersSpec<?> buildRequest(String url, String cookieHeader) {
+        String csrfToken = cookieService.getCsrfToken();
+        String anonId = cookieService.getAnonId();
+
+        var requestSpec = webClient.get()
+                .uri(url)
+                .header(HttpHeaders.COOKIE, cookieHeader)
+                .header(HttpHeaders.USER_AGENT, userAgent)
+                .header(HttpHeaders.ACCEPT, "application/json, text/plain, */*")
+                .header("Accept-Language", "fr-FR,fr;q=0.9")
+                .header(HttpHeaders.REFERER, "https://www.vinted.fr/")
+                .header(HttpHeaders.ORIGIN, "https://www.vinted.fr");
+
+        if (csrfToken != null && !csrfToken.isEmpty()) {
+            requestSpec = requestSpec.header("X-Csrf-Token", csrfToken);
+        }
+        if (anonId != null && !anonId.isEmpty()) {
+            requestSpec = requestSpec.header("X-Anon-Id", anonId);
+        }
+
+        return requestSpec;
+    }
+
+    private Mono<String> handleResponse(ClientResponse response) {
+        response.headers().header(HttpHeaders.SET_COOKIE).forEach(cookieService::updateCookiesFromResponse);
+
+        if (response.statusCode().is2xxSuccessful()) {
+            return response.bodyToMono(String.class);
+        } else if (response.statusCode().value() == 401 || response.statusCode().value() == 403) {
+            log.error("Session expirée ({})", response.statusCode().value());
+            if (sessionService != null && sessionService.hasCredentials() && !sessionService.isRefreshInProgress()) {
+                sessionService.refreshSession();
+            }
+            return Mono.error(new RuntimeException("Session expirée"));
+        } else {
+            return response.bodyToMono(String.class)
+                    .flatMap(body -> Mono.error(new RuntimeException("Erreur API: " + response.statusCode())));
+        }
+    }
+
+    private List<Favorite> parseFavoritesResponse(String responseBody) {
+        List<Favorite> favorites = new ArrayList<>();
+        try {
+            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode items = root.path("items");
+            if (items.isMissingNode() || !items.isArray()) {
+                items = root.path("favourite_items");
+            }
+
+            if (items.isArray()) {
+                for (JsonNode itemWrapper : items) {
+                    JsonNode item = itemWrapper.path("item");
+                    if (item.isMissingNode()) item = itemWrapper;
+                    Favorite favorite = mapJsonToFavorite(item);
+                    if (favorite != null) favorites.add(favorite);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Erreur parsing: {}", e.getMessage());
+        }
+        return favorites;
+    }
+
+    private Favorite mapJsonToFavorite(JsonNode item) {
+        if (item == null || item.isMissingNode()) return null;
+
+        Favorite favorite = new Favorite();
+
+        JsonNode idNode = item.path("id");
+        if (!idNode.isMissingNode()) {
+            favorite.setVintedId(idNode.isNumber() ? String.valueOf(idNode.asLong()) : idNode.asText());
+        }
+
+        favorite.setTitle(getTextValue(item, "title"));
+        favorite.setBrand(getTextValue(item, "brand_title"));
+
+        JsonNode priceNode = item.path("price");
+        if (!priceNode.isMissingNode()) {
+            String priceStr = getTextValue(priceNode, "amount");
+            if (priceStr != null) {
+                try {
+                    favorite.setPrice(Double.parseDouble(priceStr.replace(",", ".")));
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+
+        JsonNode photo = item.path("photo");
+        if (!photo.isMissingNode()) {
+            String imageUrl = getTextValue(photo, "url");
+            if (imageUrl == null) imageUrl = getTextValue(photo, "full_size_url");
+            favorite.setImageUrl(imageUrl);
+        }
+
+        favorite.setProductUrl(getTextValue(item, "url"));
+        favorite.setSold(item.path("is_closed").asBoolean(false));
+
+        JsonNode user = item.path("user");
+        if (!user.isMissingNode()) {
+            favorite.setSellerName(getTextValue(user, "login"));
+        }
+
+        String size = getTextValue(item, "size_title");
+        if (size == null) size = getTextValue(item, "size");
+        favorite.setSize(size);
+        favorite.setCondition(getTextValue(item, "status"));
+
+        return favorite;
     }
 
     private void updateExistingFavorite(Favorite existing, Favorite updated) {
@@ -675,6 +418,18 @@ public class VintedApiService {
         existing.setTitle(updated.getTitle());
         existing.setImageUrl(updated.getImageUrl());
         existing.setCondition(updated.getCondition());
+
+        if (updated.getCategory() != null && existing.getCategory() == null) existing.setCategory(updated.getCategory());
+        if (updated.getGender() != null && existing.getGender() == null) existing.setGender(updated.getGender());
+        if (updated.getBrand() != null && existing.getBrand() == null) existing.setBrand(updated.getBrand());
+        if (updated.getSize() != null && existing.getSize() == null) existing.setSize(updated.getSize());
+        if (updated.getSellerName() != null && existing.getSellerName() == null) existing.setSellerName(updated.getSellerName());
+    }
+
+    private String getTextValue(JsonNode node, String field) {
+        JsonNode fieldNode = node.path(field);
+        if (fieldNode.isMissingNode() || fieldNode.isNull()) return null;
+        return fieldNode.asText();
     }
 
     private Mono<List<Favorite>> fetchAllFavoritesPages() {
@@ -686,12 +441,9 @@ public class VintedApiService {
                 .flatMap(favorites -> {
                     accumulated.addAll(favorites);
                     if (favorites.size() < perPage) {
-                        // Dernière page
                         return Mono.just(accumulated);
-                    } else {
-                        // Récupérer la page suivante
-                        return fetchFavoritesRecursively(page + 1, perPage, accumulated);
                     }
+                    return fetchFavoritesRecursively(page + 1, perPage, accumulated);
                 });
     }
 
