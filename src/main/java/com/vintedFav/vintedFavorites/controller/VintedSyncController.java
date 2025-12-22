@@ -22,7 +22,7 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/vinted")
-@CrossOrigin(origins = "http://localhost:3000")
+@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:8080"})
 @RequiredArgsConstructor
 @Slf4j
 public class VintedSyncController {
