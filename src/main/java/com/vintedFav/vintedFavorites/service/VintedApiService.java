@@ -56,6 +56,9 @@ public class VintedApiService {
     @Value("${vinted.api.max-enrichment-batch:50}")
     private int maxEnrichmentBatch;
 
+    @Value("${vinted.api.favorites-per-page:96}")
+    private int favoritesPerPage;
+
     // ==================== SYNC ALL (avec enrichissement en arrière-plan) ====================
 
     /**
@@ -444,7 +447,8 @@ public class VintedApiService {
     }
 
     private Mono<List<Favorite>> fetchAllFavoritesPages() {
-        return fetchFavoritesRecursively(1, 20, new ArrayList<>());
+        log.info("Récupération des favoris ({} par page)...", favoritesPerPage);
+        return fetchFavoritesRecursively(1, favoritesPerPage, new ArrayList<>());
     }
 
     private Mono<List<Favorite>> fetchFavoritesRecursively(int page, int perPage, List<Favorite> accumulated) {
