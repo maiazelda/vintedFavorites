@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, X, Edit2, Trash2, ShoppingBag, AlertCircle, Menu, ChevronLeft, Tag, Users, Grid, TrendingUp, RefreshCw, Search } from 'lucide-react';
+import { Plus, X, Edit2, Trash2, ShoppingBag, AlertCircle, Menu, ChevronLeft, Tag, Users, Grid, TrendingUp, RefreshCw, Search, ArrowUpDown, Clock, DollarSign } from 'lucide-react';
 
 // URL de l'API - utilise une URL relative pour fonctionner avec nginx en production
 // ou la variable d'environnement REACT_APP_API_URL pour le développement local
@@ -22,6 +22,10 @@ const VintedFavoritesApp = () => {
 
   // State pour la recherche
   const [searchQuery, setSearchQuery] = useState('');
+
+  // State pour le tri
+  const [sortBy, setSortBy] = useState('createdAt'); // 'createdAt' ou 'price'
+  const [sortOrder, setSortOrder] = useState('desc'); // 'asc' ou 'desc'
   
   // Filtres
   const [filters, setFilters] = useState({
@@ -55,7 +59,7 @@ const VintedFavoritesApp = () => {
 
   useEffect(() => {
     applyFilters();
-  }, [favorites, filters, searchQuery]);
+  }, [favorites, filters, searchQuery, sortBy, sortOrder]);
 
   // ========================================
   // FONCTIONS API
@@ -170,6 +174,23 @@ const VintedFavoritesApp = () => {
     if (filters.sold !== '') {
       result = result.filter(fav => fav.sold === (filters.sold === 'true'));
     }
+
+    // Tri des résultats
+    result.sort((a, b) => {
+      let comparison = 0;
+
+      if (sortBy === 'createdAt') {
+        const dateA = new Date(a.createdAt || 0);
+        const dateB = new Date(b.createdAt || 0);
+        comparison = dateB - dateA; // Plus récent en premier par défaut
+      } else if (sortBy === 'price') {
+        const priceA = parseFloat(a.price) || 0;
+        const priceB = parseFloat(b.price) || 0;
+        comparison = priceA - priceB;
+      }
+
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
 
     setFilteredFavorites(result);
   };
@@ -933,6 +954,95 @@ const VintedFavoritesApp = () => {
             <span>{error}</span>
           </div>
         )}
+
+        {/* Barre de tri */}
+        <div style={{
+          padding: '16px 32px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '16px',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+          background: 'rgba(0, 0, 0, 0.2)'
+        }}>
+          <span style={{
+            fontSize: '12px',
+            color: 'rgba(228, 231, 235, 0.6)',
+            fontFamily: '"Roboto Mono", monospace',
+            textTransform: 'uppercase',
+            letterSpacing: '1px'
+          }}>
+            <ArrowUpDown size={14} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+            Trier par:
+          </span>
+
+          {/* Tri par date */}
+          <button
+            onClick={() => {
+              if (sortBy === 'createdAt') {
+                setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc');
+              } else {
+                setSortBy('createdAt');
+                setSortOrder('desc');
+              }
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 16px',
+              background: sortBy === 'createdAt' ? 'rgba(0, 255, 157, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+              border: sortBy === 'createdAt' ? '1px solid rgba(0, 255, 157, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '2px',
+              color: sortBy === 'createdAt' ? '#00ff9d' : '#e4e7eb',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontFamily: '"Roboto Mono", monospace',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Clock size={14} />
+            Date d'ajout
+            {sortBy === 'createdAt' && (
+              <span style={{ fontSize: '10px' }}>
+                {sortOrder === 'desc' ? '↓' : '↑'}
+              </span>
+            )}
+          </button>
+
+          {/* Tri par prix */}
+          <button
+            onClick={() => {
+              if (sortBy === 'price') {
+                setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc');
+              } else {
+                setSortBy('price');
+                setSortOrder('asc');
+              }
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 16px',
+              background: sortBy === 'price' ? 'rgba(0, 255, 157, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+              border: sortBy === 'price' ? '1px solid rgba(0, 255, 157, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '2px',
+              color: sortBy === 'price' ? '#00ff9d' : '#e4e7eb',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontFamily: '"Roboto Mono", monospace',
+              transition: 'all 0.2s'
+            }}
+          >
+            <DollarSign size={14} />
+            Prix
+            {sortBy === 'price' && (
+              <span style={{ fontSize: '10px' }}>
+                {sortOrder === 'asc' ? '↑' : '↓'}
+              </span>
+            )}
+          </button>
+        </div>
 
         {/* Grille des favoris */}
         <div style={{ padding: '32px' }}>
