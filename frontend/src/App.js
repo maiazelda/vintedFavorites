@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, X, Edit2, Trash2, ShoppingBag, AlertCircle, Menu, ChevronLeft, Tag, Users, Grid, TrendingUp, RefreshCw, Search, Sparkles } from 'lucide-react';
+import { Plus, X, Edit2, Trash2, ShoppingBag, AlertCircle, Menu, ChevronLeft, Tag, Users, Grid, TrendingUp, RefreshCw, Search } from 'lucide-react';
 
 // URL de l'API - utilise une URL relative pour fonctionner avec nginx en production
 // ou la variable d'environnement REACT_APP_API_URL pour le développement local
@@ -15,8 +15,6 @@ const VintedFavoritesApp = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [syncing, setSyncing] = useState(false);
-  const [enriching, setEnriching] = useState(false);
-  const [enrichMessage, setEnrichMessage] = useState(null);
 
   // NOUVEAU : State pour la sidebar
   // Comme une variable boolean en Java qui contrôle l'affichage
@@ -125,7 +123,7 @@ const VintedFavoritesApp = () => {
     try {
       setSyncing(true);
       setError(null);
-      const response = await fetch(`${API_BASE_URL}/sync`, {
+      const response = await fetch('/api/vinted/sync', {
         method: 'POST'
       });
       if (!response.ok) throw new Error('Erreur lors de la synchronisation');
@@ -134,31 +132,6 @@ const VintedFavoritesApp = () => {
       setError(err.message);
     } finally {
       setSyncing(false);
-    }
-  };
-
-  const enrichFavorites = async () => {
-    try {
-      setEnriching(true);
-      setError(null);
-      setEnrichMessage(null);
-      const response = await fetch('/api/vinted/favorites/enrich', {
-        method: 'POST'
-      });
-      const data = await response.json();
-
-      if (data.success) {
-        setEnrichMessage(`✅ ${data.enriched} favoris enrichis sur ${data.total}`);
-        await fetchFavorites();
-        // Auto-clear message après 5 secondes
-        setTimeout(() => setEnrichMessage(null), 5000);
-      } else {
-        setError(data.message);
-      }
-    } catch (err) {
-      setError(err.message || 'Erreur lors de l\'enrichissement');
-    } finally {
-      setEnriching(false);
     }
   };
 
@@ -940,42 +913,8 @@ const VintedFavoritesApp = () => {
               <RefreshCw size={18} style={{ animation: syncing ? 'spin 1s linear infinite' : 'none' }} />
               {syncing ? 'Sync...' : 'Synchroniser'}
             </button>
-            <button
-              className="btn-dark btn-secondary-dark"
-              onClick={enrichFavorites}
-              disabled={enriching}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                opacity: enriching ? 0.6 : 1,
-                cursor: enriching ? 'not-allowed' : 'pointer',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              <Sparkles size={18} style={{ animation: enriching ? 'spin 1s linear infinite' : 'none' }} />
-              {enriching ? 'Enrichir...' : 'Enrichir'}
-            </button>
           </div>
         </div>
-
-        {/* Message de succès enrichissement */}
-        {enrichMessage && (
-          <div style={{
-            background: 'rgba(0, 255, 157, 0.1)',
-            color: '#00ff9d',
-            padding: '16px 32px',
-            margin: '20px 32px',
-            borderRadius: '2px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            border: '1px solid rgba(0, 255, 157, 0.3)'
-          }}>
-            <Sparkles size={20} />
-            <span>{enrichMessage}</span>
-          </div>
-        )}
 
         {/* Erreur */}
         {error && (
