@@ -338,11 +338,16 @@ public class VintedApiService {
         if (response.statusCode().is2xxSuccessful()) {
             return response.bodyToMono(String.class);
         } else if (response.statusCode().value() == 401 || response.statusCode().value() == 403) {
-            log.error("Session expirée ({})", response.statusCode().value());
-            if (sessionService != null && sessionService.hasCredentials() && !sessionService.isRefreshInProgress()) {
-                sessionService.refreshSession();
-            }
-            return Mono.error(new RuntimeException("Session expirée"));
+            return response.bodyToMono(String.class)
+                    .defaultIfEmpty("")
+                    .flatMap(body -> {
+                        log.error("Session expirée ({}) - Réponse: {}", response.statusCode().value(),
+                                body.length() > 500 ? body.substring(0, 500) + "..." : body);
+                        if (sessionService != null && sessionService.hasCredentials() && !sessionService.isRefreshInProgress()) {
+                            sessionService.refreshSession();
+                        }
+                        return Mono.error(new RuntimeException("Session expirée"));
+                    });
         } else {
             return response.bodyToMono(String.class)
                     .flatMap(body -> Mono.error(new RuntimeException("Erreur API: " + response.statusCode())));
