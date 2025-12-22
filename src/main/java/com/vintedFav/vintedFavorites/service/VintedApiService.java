@@ -56,22 +56,28 @@ public class VintedApiService {
     @Value("${vinted.api.max-enrichment-batch:50}")
     private int maxEnrichmentBatch;
 
-    // ==================== SYNC ALL (avec enrichissement automatique) ====================
+    // ==================== SYNC ALL (avec enrichissement en arrière-plan) ====================
 
     /**
-     * Synchronise tous les favoris ET les enrichit automatiquement
-     * C'est la méthode principale à appeler
+     * Synchronise tous les favoris et lance l'enrichissement en arrière-plan
+     * Retourne immédiatement après la synchro pour éviter les timeouts
      */
     public Mono<Integer> syncAllFavorites() {
         log.info("=== SYNCHRONISATION DES FAVORIS ===");
         return fetchAllFavoritesPages()
-                .flatMap(favorites -> {
+                .map(favorites -> {
                     int savedCount = saveFavorites(favorites);
                     log.info("Synchronisation: {} nouveaux favoris sur {} total", savedCount, favorites.size());
 
-                    // Enrichissement automatique intégré
-                    return enrichAllUntilComplete()
-                            .thenReturn(savedCount);
+                    // Lancer l'enrichissement en arrière-plan (non-bloquant)
+                    enrichAllUntilComplete()
+                            .subscribe(
+                                    null,
+                                    error -> log.error("Erreur enrichissement background: {}", error.getMessage()),
+                                    () -> log.info("✓ Enrichissement background terminé")
+                            );
+
+                    return savedCount;
                 });
     }
 
