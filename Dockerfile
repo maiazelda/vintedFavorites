@@ -25,11 +25,6 @@ RUN apt-get update && apt-get install -y curl gnupg wget \
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 ENV HEADLESS=true
 
-# Installer les dépendances Playwright (navigateurs)
-RUN npx playwright install-deps chromium \
-    && npx playwright install chromium \
-    && chmod -R 755 /opt/playwright-browsers
-
 WORKDIR /app
 
 # Créer un utilisateur non-root pour la sécurité
@@ -40,8 +35,16 @@ COPY scripts/package*.json ./scripts/
 WORKDIR /app/scripts
 RUN npm install --omit=dev
 
+# Installer les dépendances système pour Playwright PUIS les navigateurs
+RUN npx playwright install-deps chromium \
+    && npx playwright install chromium
+
 # Copier le script Playwright
 COPY scripts/vinted-session-manager.js ./
+
+# Donner les permissions sur les navigateurs Playwright
+RUN chmod -R 755 /opt/playwright-browsers \
+    && chown -R appuser:appgroup /opt/playwright-browsers
 
 WORKDIR /app
 
