@@ -35,6 +35,10 @@ services:
       VINTED_USER_ID: ${VINTED_USER_ID:-11494046}
       VINTED_COOKIES: ${VINTED_COOKIES:-}
 
+      # Identifiants Vinted pour refresh automatique (optionnel)
+      VINTED_EMAIL: ${VINTED_EMAIL:-}
+      VINTED_PASSWORD: ${VINTED_PASSWORD:-}
+
       # Configuration serveur
       SERVER_PORT: 8080
 
@@ -46,6 +50,9 @@ services:
       # Rate limiting
       VINTED_API_ENRICHMENT_DELAY: ${VINTED_API_ENRICHMENT_DELAY:-2000}
       VINTED_API_MAX_ENRICHMENT_BATCH: ${VINTED_API_MAX_ENRICHMENT_BATCH:-20}
+
+      # Playwright configuration
+      HEADLESS: "true"
     # Port interne uniquement (accessible via nginx)
     expose:
       - "8080"
@@ -58,7 +65,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "${APP_PORT:-3000}:80"
+      - "${APP_PORT:-8080}:80"
     restart: unless-stopped
 
 volumes:

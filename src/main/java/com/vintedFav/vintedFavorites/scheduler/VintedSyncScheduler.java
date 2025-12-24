@@ -33,18 +33,28 @@ public class VintedSyncScheduler {
     @Value("${vinted.cookies.initial:}")
     private String initialCookies;
 
+    @Value("${vinted.credentials.email:}")
+    private String envEmail;
+
+    @Value("${vinted.credentials.password:}")
+    private String envPassword;
+
+    @Value("${vinted.api.user-id:}")
+    private String userId;
+
     @EventListener(ApplicationReadyEvent.class)
     public void onApplicationReady() {
         log.info("========================================");
         log.info("=== DÉMARRAGE VINTED FAVORITES ===");
         log.info("========================================");
 
+        // Charger les credentials depuis les variables d'environnement si pas déjà configurés
+        loadCredentialsFromEnv();
+
         // Charger les cookies
         if (initialCookies != null && !initialCookies.isEmpty()) {
             log.info("Chargement des cookies...");
             cookieService.saveAllCookiesFromRawString(initialCookies, "vinted.fr");
-        } else {
-            log.warn("Aucun cookie configuré!");
         }
 
         if (!syncEnabled || !syncOnStartup) {
@@ -52,28 +62,40 @@ public class VintedSyncScheduler {
             return;
         }
 
-        // Vérifier si le token est expiré
-        if (authService.isAccessTokenExpired()) {
-            log.warn("Token expiré - tentative de refresh via Playwright...");
-
-            if (sessionService.hasCredentials()) {
-                // Attendre que le refresh de session soit terminé avant de sync
-                sessionService.refreshSession()
-                        .thenAccept(success -> {
-                            if (success) {
-                                log.info("Session rafraîchie avec succès");
-                                startSync();
-                            } else {
-                                log.error("Échec du refresh de session - mettez à jour vos cookies manuellement");
-                            }
-                        });
-            } else {
-                log.error("Pas de credentials configurés pour le refresh automatique");
-                log.error("Utilisez POST /api/vinted/credentials pour configurer email/password");
-            }
-        } else {
-            // Token valide, lancer la sync directement
+        // Vérifier si on a des cookies valides
+        if (vintedApiService.isSessionValid()) {
+            // Session valide, lancer la sync directement
             startSync();
+        } else if (sessionService.hasCredentials()) {
+            // Pas de cookies valides mais on a des credentials -> login automatique
+            log.info("Session invalide - tentative de login automatique via Playwright...");
+            sessionService.refreshSession()
+                    .thenAccept(success -> {
+                        if (success) {
+                            log.info("Login automatique réussi !");
+                            startSync();
+                        } else {
+                            log.error("Échec du login automatique - vérifiez vos identifiants");
+                        }
+                    });
+        } else {
+            log.warn("Aucune méthode d'authentification configurée !");
+            log.warn("Configurez VINTED_EMAIL + VINTED_PASSWORD ou VINTED_COOKIES dans .env");
+        }
+    }
+
+    private void loadCredentialsFromEnv() {
+        // Charger les credentials depuis les variables d'environnement si configurés
+        if (envEmail != null && !envEmail.isEmpty() &&
+            envPassword != null && !envPassword.isEmpty()) {
+
+            if (!sessionService.hasCredentials()) {
+                log.info("Chargement des credentials depuis les variables d'environnement...");
+                sessionService.saveCredentials(envEmail, envPassword, userId);
+                log.info("Credentials configurés pour: {}", envEmail);
+            } else {
+                log.debug("Credentials déjà configurés en base de données");
+            }
         }
     }
 
