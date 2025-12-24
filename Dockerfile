@@ -14,21 +14,26 @@ RUN mvn clean package -DskipTests -B
 # Étape 2: Image de production avec Node.js pour Playwright
 FROM eclipse-temurin:17-jdk
 
-# Installer Node.js 20.x
-RUN apt-get update && apt-get install -y curl gnupg \
+# Installer Node.js 20.x et wget
+RUN apt-get update && apt-get install -y curl gnupg wget \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Variables d'environnement pour Playwright
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+ENV HEADLESS=true
+
 # Installer les dépendances Playwright (navigateurs)
 RUN npx playwright install-deps chromium \
-    && npx playwright install chromium
+    && npx playwright install chromium \
+    && chmod -R 755 /opt/playwright-browsers
 
 WORKDIR /app
 
 # Créer un utilisateur non-root pour la sécurité
-RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+RUN groupadd -r appgroup && useradd -r -g appgroup -m appuser
 
 # Copier le script Playwright et installer les dépendances
 COPY scripts/package*.json ./scripts/
@@ -46,14 +51,7 @@ COPY --from=builder /app/target/vintedFavorites-0.0.1-SNAPSHOT.jar app.jar
 # Changer le propriétaire
 RUN chown -R appuser:appgroup /app
 
-# Créer le répertoire pour Playwright browser cache
-RUN mkdir -p /home/appuser/.cache && chown -R appuser:appgroup /home/appuser
-
 USER appuser
-
-# Variables d'environnement pour Playwright
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-ENV HEADLESS=true
 
 # Port exposé
 EXPOSE 8080

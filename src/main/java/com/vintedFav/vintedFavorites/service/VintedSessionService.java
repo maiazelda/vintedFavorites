@@ -149,7 +149,8 @@ public class VintedSessionService {
                 );
 
                 // Set environment variable to run in non-headless mode for debugging
-                pb.environment().put("HEADLESS", "false");
+                pb.environment().put("HEADLESS", "true");
+                pb.environment().put("API_URL", "http://localhost:8080");
                 pb.redirectErrorStream(true);
                 Process process = pb.start();
 
@@ -159,11 +160,14 @@ public class VintedSessionService {
                     String line;
                     while ((line = reader.readLine()) != null) {
                         output.append(line).append("\n");
-                        log.debug("Playwright: {}", line);
+                        log.info("Playwright: {}", line);
                     }
                 }
 
                 int exitCode = process.waitFor();
+
+                log.info("Playwright finished with exit code: {}", exitCode);
+                log.info("Playwright output:\n{}", output.toString());
 
                 if (exitCode == 0) {
                     log.info("Session refresh completed successfully");
@@ -172,7 +176,6 @@ public class VintedSessionService {
                     return true;
                 } else {
                     log.error("Session refresh failed with exit code: {}", exitCode);
-                    log.error("Output: {}", output.toString());
                     return false;
                 }
 
