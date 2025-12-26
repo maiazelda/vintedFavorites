@@ -19,8 +19,10 @@ public class FavoriteController {
     private FavoriteService favoriteService;
 
     @GetMapping
-    public ResponseEntity<List<Favorite>> getAllFavorites() {
-        List<Favorite> favorites = favoriteService.getAllFavorites();
+    public ResponseEntity<List<Favorite>> getAllFavorites(
+            @RequestParam(required = false, defaultValue = "asc") String sortOrder
+    ) {
+        List<Favorite> favorites = favoriteService.getAllFavorites(sortOrder);
         return ResponseEntity.ok(favorites);
     }
 

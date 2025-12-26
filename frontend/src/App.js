@@ -24,8 +24,8 @@ const VintedFavoritesApp = () => {
   const [searchQuery, setSearchQuery] = useState('');
 
   // State pour le tri
-  const [sortBy, setSortBy] = useState('createdAt'); // 'createdAt' ou 'price'
-  const [sortOrder, setSortOrder] = useState('desc'); // 'asc' ou 'desc'
+  const [sortBy, setSortBy] = useState('vintedOrder'); // 'vintedOrder', 'createdAt' ou 'price'
+  const [sortOrder, setSortOrder] = useState('asc'); // 'asc' ou 'desc'
   
   // Filtres
   const [filters, setFilters] = useState({
@@ -55,7 +55,8 @@ const VintedFavoritesApp = () => {
   
   useEffect(() => {
     fetchFavorites();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortBy, sortOrder]);
 
   useEffect(() => {
     applyFilters();
@@ -68,7 +69,11 @@ const VintedFavoritesApp = () => {
   const fetchFavorites = async () => {
     try {
       setLoading(true);
-      const response = await fetch(API_BASE_URL);
+      // Ajouter le paramètre sortOrder si le tri est par vintedOrder
+      const url = sortBy === 'vintedOrder'
+        ? `${API_BASE_URL}?sortOrder=${sortOrder}`
+        : API_BASE_URL;
+      const response = await fetch(url);
       if (!response.ok) throw new Error('Erreur lors du chargement');
       const data = await response.json();
       setFavorites(data);
@@ -175,22 +180,24 @@ const VintedFavoritesApp = () => {
       result = result.filter(fav => fav.sold === (filters.sold === 'true'));
     }
 
-    // Tri des résultats
-    result.sort((a, b) => {
-      let comparison = 0;
+    // Tri des résultats (sauf pour vintedOrder qui est déjà trié par le backend)
+    if (sortBy !== 'vintedOrder') {
+      result.sort((a, b) => {
+        let comparison = 0;
 
-      if (sortBy === 'createdAt') {
-        const dateA = new Date(a.createdAt || 0);
-        const dateB = new Date(b.createdAt || 0);
-        comparison = dateB - dateA; // Plus récent en premier par défaut
-      } else if (sortBy === 'price') {
-        const priceA = parseFloat(a.price) || 0;
-        const priceB = parseFloat(b.price) || 0;
-        comparison = priceA - priceB;
-      }
+        if (sortBy === 'createdAt') {
+          const dateA = new Date(a.createdAt || 0);
+          const dateB = new Date(b.createdAt || 0);
+          comparison = dateB - dateA; // Plus récent en premier par défaut
+        } else if (sortBy === 'price') {
+          const priceA = parseFloat(a.price) || 0;
+          const priceB = parseFloat(b.price) || 0;
+          comparison = priceA - priceB;
+        }
 
-      return sortOrder === 'asc' ? comparison : -comparison;
-    });
+        return sortOrder === 'asc' ? comparison : -comparison;
+      });
+    }
 
     setFilteredFavorites(result);
   };
@@ -974,6 +981,40 @@ const VintedFavoritesApp = () => {
             <ArrowUpDown size={14} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
             Trier par:
           </span>
+
+          {/* Tri par ordre Vinted */}
+          <button
+            onClick={() => {
+              if (sortBy === 'vintedOrder') {
+                setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc');
+              } else {
+                setSortBy('vintedOrder');
+                setSortOrder('asc');
+              }
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 16px',
+              background: sortBy === 'vintedOrder' ? 'rgba(0, 255, 157, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+              border: sortBy === 'vintedOrder' ? '1px solid rgba(0, 255, 157, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '2px',
+              color: sortBy === 'vintedOrder' ? '#00ff9d' : '#e4e7eb',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontFamily: '"Roboto Mono", monospace',
+              transition: 'all 0.2s'
+            }}
+          >
+            <ShoppingBag size={14} />
+            Ordre Vinted
+            {sortBy === 'vintedOrder' && (
+              <span style={{ fontSize: '10px' }}>
+                {sortOrder === 'asc' ? '↓' : '↑'}
+              </span>
+            )}
+          </button>
 
           {/* Tri par date */}
           <button

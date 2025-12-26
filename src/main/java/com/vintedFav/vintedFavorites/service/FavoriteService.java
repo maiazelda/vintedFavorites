@@ -18,6 +18,13 @@ public class FavoriteService {
         return favoriteRepository.findAllByOrderByFavoriteOrderAsc();
     }
 
+    public List<Favorite> getAllFavorites(String sortOrder) {
+        if ("desc".equalsIgnoreCase(sortOrder)) {
+            return favoriteRepository.findAllByOrderByFavoriteOrderDesc();
+        }
+        return favoriteRepository.findAllByOrderByFavoriteOrderAsc();
+    }
+
     public Optional<Favorite> getFavoriteById(Long id) {
         return favoriteRepository.findById(id);
     }
