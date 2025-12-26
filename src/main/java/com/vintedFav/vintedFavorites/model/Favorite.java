@@ -50,6 +50,9 @@ public class Favorite {
 
     private String condition; // ex: "Neuf", "Très bon état", "Bon état"
 
+    @Column(name = "favorite_order")
+    private Integer favoriteOrder;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

@@ -86,8 +86,12 @@ public class VintedApiService {
 
     private int saveFavorites(List<Favorite> favorites) {
         int savedCount = 0;
-        for (Favorite favorite : favorites) {
+        for (int i = 0; i < favorites.size(); i++) {
+            Favorite favorite = favorites.get(i);
             try {
+                // Assigner l'ordre d'ajout (0 = le plus récent)
+                favorite.setFavoriteOrder(i);
+
                 var existing = favoriteService.getFavoritesByVintedId(favorite.getVintedId());
                 if (existing.isEmpty()) {
                     favoriteService.saveFavorite(favorite);
@@ -95,6 +99,8 @@ public class VintedApiService {
                 } else {
                     Favorite existingFavorite = existing.get(0);
                     updateExistingFavorite(existingFavorite, favorite);
+                    // Mettre à jour aussi l'ordre pour les favoris existants
+                    existingFavorite.setFavoriteOrder(i);
                     favoriteService.saveFavorite(existingFavorite);
                 }
             } catch (Exception e) {

@@ -15,7 +15,7 @@ public class FavoriteService {
     private FavoriteRepository favoriteRepository;
 
     public List<Favorite> getAllFavorites() {
-        return favoriteRepository.findAll();
+        return favoriteRepository.findAllByOrderByFavoriteOrderAsc();
     }
 
     public Optional<Favorite> getFavoriteById(Long id) {
@@ -57,7 +57,8 @@ public class FavoriteService {
     }
 
     public List<Favorite> filterFavorites(String brand, String gender, String category, Boolean sold) {
-        List<Favorite> favorites = favoriteRepository.findAll();
+        // Utiliser la méthode qui trie par ordre d'ajout Vinted
+        List<Favorite> favorites = favoriteRepository.findAllByOrderByFavoriteOrderAsc();
 
         // Filtrage manuel (à optimiser avec des requêtes SQL plus tard)
         return favorites.stream()

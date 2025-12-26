@@ -22,4 +22,7 @@ public interface FavoriteRepository extends JpaRepository<Favorite, Long> {
 
     Optional<Favorite> findByVintedId(String vintedId);
 
+    // Récupère tous les favoris triés par ordre d'ajout (ordre Vinted)
+    List<Favorite> findAllByOrderByFavoriteOrderAsc();
+
 }
