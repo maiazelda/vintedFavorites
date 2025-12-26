@@ -171,6 +171,7 @@ async function login(page) {
     try {
         // Try multiple selectors for the login button
         const loginSelectors = [
+            'a:has-text("S\'inscrire")',  // "S'inscrire | Se connecter" button
             '[data-testid="header--login-button"]',
             'a[href*="login"]',
             'button:has-text("Se connecter")',
@@ -202,7 +203,63 @@ async function login(page) {
         await page.goto(`${config.vintedUrl}/member/login`, { waitUntil: 'networkidle' });
     }
 
-    // Wait for login form
+    // Wait for the welcome popup to appear
+    await page.waitForTimeout(2000);
+
+    // NEW STEP: Click on "e-mail" link in the welcome popup
+    console.log('Looking for email login option in welcome popup...');
+
+    if (config.debugMode) {
+        console.log('\n========================================');
+        console.log('ÉTAPE 1.5: Clic sur "e-mail" dans la popup');
+        console.log('La popup "Bienvenue !" devrait être visible.');
+        console.log('Le script va cliquer sur le lien "e-mail".');
+        console.log('Pause de 10 secondes...');
+        console.log('========================================\n');
+        await page.waitForTimeout(10000);
+    }
+
+    try {
+        // Try to find and click the email login link in the welcome popup
+        const emailLinkSelectors = [
+            'a:has-text("e-mail")',
+            'a[href*="email"]',
+            'button:has-text("e-mail")',
+            '[data-testid="email-login"]',
+            'a:has-text("mail")'
+        ];
+
+        let emailLinkClicked = false;
+        for (const selector of emailLinkSelectors) {
+            try {
+                const emailLink = await page.$(selector);
+                if (emailLink && await emailLink.isVisible()) {
+                    console.log(`✓ Lien "e-mail" trouvé avec le sélecteur: ${selector}`);
+                    await emailLink.click();
+                    emailLinkClicked = true;
+                    await page.waitForTimeout(1500);
+                    break;
+                }
+            } catch (e) {
+                if (config.debugMode) {
+                    console.log(`✗ Sélecteur ${selector} non trouvé`);
+                }
+            }
+        }
+
+        if (!emailLinkClicked) {
+            console.log('⚠️  Lien "e-mail" non trouvé dans la popup');
+            if (config.debugMode) {
+                console.log('Veuillez cliquer manuellement sur "e-mail" dans la popup.');
+                console.log('Pause de 20 secondes...');
+                await page.waitForTimeout(20000);
+            }
+        }
+    } catch (e) {
+        console.log('Could not find email link in welcome popup');
+    }
+
+    // Wait for login form to appear
     await page.waitForTimeout(2000);
 
     // Look for email/password fields
@@ -320,7 +377,7 @@ async function login(page) {
     if (config.debugMode) {
         console.log('\n========================================');
         console.log('ÉTAPE 3: Soumission du formulaire');
-        console.log('Le script va cliquer sur "Se connecter".');
+        console.log('Le script va cliquer sur "Continuer".');
         console.log('Si cela échoue, vous pouvez le faire manuellement.');
         console.log('Pause de 10 secondes...');
         console.log('========================================\n');
@@ -329,9 +386,11 @@ async function login(page) {
 
     const submitSelectors = [
         'button[type="submit"]',
+        'button:has-text("Continuer")',
         'button:has-text("Se connecter")',
         'button:has-text("Connexion")',
-        '[data-testid="login-submit"]'
+        '[data-testid="login-submit"]',
+        '[data-testid="submit-button"]'
     ];
 
     let submitted = false;
@@ -349,7 +408,7 @@ async function login(page) {
 
     if (!submitted && config.debugMode) {
         console.log('⚠️  Bouton de soumission non trouvé automatiquement.');
-        console.log('Veuillez cliquer manuellement sur "Se connecter"');
+        console.log('Veuillez cliquer manuellement sur "Continuer"');
         console.log('Pause de 20 secondes...');
         await page.waitForTimeout(20000);
     }

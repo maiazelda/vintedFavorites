@@ -31,9 +31,10 @@ HEADLESS=false DEBUG_MODE=true VINTED_EMAIL="votre@email.com" VINTED_PASSWORD="v
 Le script va :
 1. **Ouvrir une fenêtre Chrome visible**
 2. **Afficher des messages à chaque étape** avec des pauses :
-   - ÉTAPE 1 : Recherche du bouton "Se connecter" (pause 15s)
+   - ÉTAPE 1 : Recherche du bouton "S'inscrire | Se connecter" (pause 15s)
+   - ÉTAPE 1.5 : Clic sur le lien "e-mail" dans la popup "Bienvenue !" (pause 10s)
    - ÉTAPE 2 : Remplissage email/mot de passe (pause 10s)
-   - ÉTAPE 3 : Clic sur "Se connecter" (pause 10s)
+   - ÉTAPE 3 : Clic sur "Continuer" (pause 10s)
    - ÉTAPE 4 : Vérification de la connexion (pause 15s)
 
 3. **Vous laisser intervenir** si les sélecteurs automatiques échouent
