@@ -16,6 +16,7 @@ const config = {
     password: process.env.VINTED_PASSWORD || process.argv.find((arg, i) => process.argv[i-1] === '--password'),
     apiUrl: process.env.API_URL || process.argv.find((arg, i) => process.argv[i-1] === '--api-url') || 'http://localhost:8080',
     headless: process.env.HEADLESS !== 'false',
+    debugMode: process.env.DEBUG_MODE === 'true',
     vintedUrl: 'https://www.vinted.fr'
 };
 
@@ -120,6 +121,15 @@ async function login(page) {
         });
     }
 
+    if (config.debugMode) {
+        console.log('\n========================================');
+        console.log('MODE DEBUG ACTIVÉ');
+        console.log('La fenêtre du navigateur est ouverte.');
+        console.log('Vous avez 30 secondes pour observer la page.');
+        console.log('========================================\n');
+        await page.waitForTimeout(30000);
+    }
+
     // Wait a bit for any popups/consent dialogs
     await page.waitForTimeout(2000);
 
@@ -147,6 +157,17 @@ async function login(page) {
 
     // Click on login button
     console.log('Clicking login button...');
+
+    if (config.debugMode) {
+        console.log('\n========================================');
+        console.log('ÉTAPE 1: Recherche du bouton de connexion');
+        console.log('Si le script ne trouve pas le bouton,');
+        console.log('vous pouvez cliquer manuellement dessus.');
+        console.log('Pause de 15 secondes...');
+        console.log('========================================\n');
+        await page.waitForTimeout(15000);
+    }
+
     try {
         // Try multiple selectors for the login button
         const loginSelectors = [
@@ -157,12 +178,22 @@ async function login(page) {
             '.Header__login'
         ];
 
+        let clicked = false;
         for (const selector of loginSelectors) {
             const loginBtn = await page.$(selector);
             if (loginBtn) {
+                console.log(`Bouton trouvé avec le sélecteur: ${selector}`);
                 await loginBtn.click();
+                clicked = true;
                 break;
             }
+        }
+
+        if (!clicked && config.debugMode) {
+            console.log('⚠️  Aucun bouton trouvé automatiquement.');
+            console.log('Veuillez cliquer manuellement sur "Se connecter"');
+            console.log('Pause de 20 secondes...');
+            await page.waitForTimeout(20000);
         }
 
         await page.waitForTimeout(2000);
@@ -176,6 +207,16 @@ async function login(page) {
 
     // Look for email/password fields
     console.log('Filling login form...');
+
+    if (config.debugMode) {
+        console.log('\n========================================');
+        console.log('ÉTAPE 2: Remplissage du formulaire');
+        console.log('Le script va essayer de remplir email et mot de passe.');
+        console.log('Si cela échoue, vous pouvez le faire manuellement.');
+        console.log('Pause de 10 secondes...');
+        console.log('========================================\n');
+        await page.waitForTimeout(10000);
+    }
 
     // Try to find and fill email field
     const emailSelectors = [
@@ -192,7 +233,9 @@ async function login(page) {
     let emailFilled = false;
     for (const selector of emailSelectors) {
         try {
-            console.log(`Trying email selector: ${selector}`);
+            if (config.debugMode) {
+                console.log(`Essai du sélecteur email: ${selector}`);
+            }
             await page.waitForSelector(selector, { timeout: 3000 });
             const emailInput = await page.$(selector);
             if (emailInput && await emailInput.isVisible()) {
@@ -200,19 +243,27 @@ async function login(page) {
                 await page.waitForTimeout(500);
                 await emailInput.fill(config.email);
                 emailFilled = true;
-                console.log(`Email filled using selector: ${selector}`);
+                console.log(`✓ Email rempli avec le sélecteur: ${selector}`);
                 break;
             }
         } catch (e) {
-            console.log(`Selector ${selector} not found`);
+            if (config.debugMode) {
+                console.log(`✗ Sélecteur ${selector} non trouvé`);
+            }
         }
     }
 
     if (!emailFilled) {
-        console.error('Could not find email input field');
-        console.log('Saving debug screenshot...');
-        await page.screenshot({ path: 'email-field-not-found.png', fullPage: true });
-        return false;
+        console.error('⚠️  Impossible de trouver le champ email automatiquement');
+        if (config.debugMode) {
+            console.log('Veuillez remplir le champ email manuellement.');
+            console.log('Pause de 20 secondes...');
+            await page.waitForTimeout(20000);
+        } else {
+            console.log('Saving debug screenshot...');
+            await page.screenshot({ path: 'email-field-not-found.png', fullPage: true });
+            return false;
+        }
     }
 
     // Wait a bit before password
@@ -230,7 +281,9 @@ async function login(page) {
     let passwordFilled = false;
     for (const selector of passwordSelectors) {
         try {
-            console.log(`Trying password selector: ${selector}`);
+            if (config.debugMode) {
+                console.log(`Essai du sélecteur password: ${selector}`);
+            }
             await page.waitForSelector(selector, { timeout: 3000 });
             const passwordInput = await page.$(selector);
             if (passwordInput && await passwordInput.isVisible()) {
@@ -238,23 +291,42 @@ async function login(page) {
                 await page.waitForTimeout(500);
                 await passwordInput.fill(config.password);
                 passwordFilled = true;
-                console.log(`Password filled using selector: ${selector}`);
+                console.log(`✓ Mot de passe rempli avec le sélecteur: ${selector}`);
                 break;
             }
         } catch (e) {
-            console.log(`Selector ${selector} not found`);
+            if (config.debugMode) {
+                console.log(`✗ Sélecteur ${selector} non trouvé`);
+            }
         }
     }
 
     if (!passwordFilled) {
-        console.error('Could not find password input field');
-        console.log('Saving debug screenshot...');
-        await page.screenshot({ path: 'password-field-not-found.png', fullPage: true });
-        return false;
+        console.error('⚠️  Impossible de trouver le champ mot de passe automatiquement');
+        if (config.debugMode) {
+            console.log('Veuillez remplir le champ mot de passe manuellement.');
+            console.log('Pause de 20 secondes...');
+            await page.waitForTimeout(20000);
+        } else {
+            console.log('Saving debug screenshot...');
+            await page.screenshot({ path: 'password-field-not-found.png', fullPage: true });
+            return false;
+        }
     }
 
     // Submit the form
     console.log('Submitting login form...');
+
+    if (config.debugMode) {
+        console.log('\n========================================');
+        console.log('ÉTAPE 3: Soumission du formulaire');
+        console.log('Le script va cliquer sur "Se connecter".');
+        console.log('Si cela échoue, vous pouvez le faire manuellement.');
+        console.log('Pause de 10 secondes...');
+        console.log('========================================\n');
+        await page.waitForTimeout(10000);
+    }
+
     const submitSelectors = [
         'button[type="submit"]',
         'button:has-text("Se connecter")',
@@ -262,19 +334,38 @@ async function login(page) {
         '[data-testid="login-submit"]'
     ];
 
+    let submitted = false;
     for (const selector of submitSelectors) {
         try {
             const submitBtn = await page.$(selector);
             if (submitBtn) {
+                console.log(`✓ Bouton de soumission trouvé: ${selector}`);
                 await submitBtn.click();
+                submitted = true;
                 break;
             }
         } catch (e) {}
     }
 
+    if (!submitted && config.debugMode) {
+        console.log('⚠️  Bouton de soumission non trouvé automatiquement.');
+        console.log('Veuillez cliquer manuellement sur "Se connecter"');
+        console.log('Pause de 20 secondes...');
+        await page.waitForTimeout(20000);
+    }
+
     // Wait for login to complete
     console.log('Waiting for login to complete...');
     await page.waitForTimeout(5000);
+
+    if (config.debugMode) {
+        console.log('\n========================================');
+        console.log('ÉTAPE 4: Vérification de la connexion');
+        console.log('Le script va vérifier si la connexion a réussi.');
+        console.log('Pause de 15 secondes pour observer...');
+        console.log('========================================\n');
+        await page.waitForTimeout(15000);
+    }
 
     // Check if login was successful
     const loginSuccess = await page.evaluate(() => {
@@ -283,10 +374,23 @@ async function login(page) {
     });
 
     if (loginSuccess) {
-        console.log('Login successful!');
+        console.log('✓ Login successful!');
+        if (config.debugMode) {
+            console.log('\n========================================');
+            console.log('SUCCÈS! La connexion a réussi.');
+            console.log('Le script va maintenant extraire les cookies.');
+            console.log('Pause de 10 secondes...');
+            console.log('========================================\n');
+            await page.waitForTimeout(10000);
+        }
         return true;
     } else {
-        console.error('Login may have failed. Check for CAPTCHA or 2FA.');
+        console.error('⚠️  Login may have failed. Check for CAPTCHA or 2FA.');
+        if (config.debugMode) {
+            console.log('Vérifiez manuellement si vous êtes connecté.');
+            console.log('Pause de 30 secondes pour intervention manuelle...');
+            await page.waitForTimeout(30000);
+        }
         return false;
     }
 }
@@ -295,6 +399,7 @@ async function refreshSession() {
     console.log('Starting Vinted session refresh...');
     console.log(`API URL: ${config.apiUrl}`);
     console.log(`Headless: ${config.headless}`);
+    console.log(`Debug Mode: ${config.debugMode}`);
 
     if (!config.email || !config.password) {
         console.error('ERROR: Email and password are required!');
