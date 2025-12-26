@@ -1,9 +1,207 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, X, Edit2, Trash2, ShoppingBag, AlertCircle, Menu, ChevronLeft, Tag, Users, Grid, TrendingUp, RefreshCw, Search, ArrowUpDown, Clock, DollarSign } from 'lucide-react';
+import { FixedSizeGrid as VirtualGrid } from 'react-window';
 
 // URL de l'API - utilise une URL relative pour fonctionner avec nginx en production
 // ou la variable d'environnement REACT_APP_API_URL pour le développement local
 const API_BASE_URL = process.env.REACT_APP_API_URL || '/api/favorites';
+
+// Composant carte de favori (extrait pour performances)
+const FavoriteCard = ({ favorite }) => {
+  return (
+    <div
+      className="card-dark"
+      style={{
+        padding: '24px',
+        height: '100%'
+      }}
+    >
+      {/* Photo du favori */}
+      {favorite.imageUrl && (
+        <div style={{
+          marginBottom: '16px',
+          borderRadius: '4px',
+          overflow: 'hidden',
+          background: 'rgba(0, 0, 0, 0.3)'
+        }}>
+          <img
+            src={favorite.imageUrl}
+            alt={favorite.title}
+            loading="lazy"
+            style={{
+              width: '100%',
+              height: '200px',
+              objectFit: 'cover',
+              display: 'block'
+            }}
+            onError={(e) => {
+              e.target.style.display = 'none';
+            }}
+          />
+        </div>
+      )}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        marginBottom: '20px'
+      }}>
+        <h3 style={{
+          fontSize: '18px',
+          fontWeight: 700,
+          color: '#e4e7eb',
+          flex: 1,
+          marginRight: '12px',
+          fontFamily: '"Rajdhani", sans-serif',
+          letterSpacing: '0.5px'
+        }}>
+          {favorite.title}
+        </h3>
+        <span className={favorite.sold ? 'badge-dark badge-sold-dark' : 'badge-dark badge-available-dark'}>
+          {favorite.sold ? 'Vendu' : 'Dispo'}
+        </span>
+      </div>
+
+      <div style={{
+        marginBottom: '20px',
+        padding: '16px',
+        background: 'rgba(0, 0, 0, 0.2)',
+        borderRadius: '2px',
+        border: '1px solid rgba(255, 255, 255, 0.05)'
+      }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '16px',
+          fontSize: '13px'
+        }}>
+          <div>
+            <span style={{
+              display: 'block',
+              color: 'rgba(228, 231, 235, 0.5)',
+              fontSize: '11px',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              marginBottom: '4px',
+              fontFamily: '"Roboto Mono", monospace'
+            }}>
+              Marque
+            </span>
+            <div style={{ color: '#e4e7eb', fontWeight: 600 }}>
+              {favorite.brand || 'N/A'}
+            </div>
+          </div>
+          <div>
+            <span style={{
+              display: 'block',
+              color: 'rgba(228, 231, 235, 0.5)',
+              fontSize: '11px',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              marginBottom: '4px',
+              fontFamily: '"Roboto Mono", monospace'
+            }}>
+              Prix
+            </span>
+            <div style={{
+              fontSize: '20px',
+              fontWeight: 700,
+              color: '#00ff9d',
+              fontFamily: '"Rajdhani", sans-serif'
+            }}>
+              {favorite.price ? `${favorite.price}€` : 'N/A'}
+            </div>
+          </div>
+          <div>
+            <span style={{
+              display: 'block',
+              color: 'rgba(228, 231, 235, 0.5)',
+              fontSize: '11px',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              marginBottom: '4px',
+              fontFamily: '"Roboto Mono", monospace'
+            }}>
+              Taille
+            </span>
+            <div style={{ color: '#e4e7eb', fontWeight: 600 }}>
+              {favorite.size || 'N/A'}
+            </div>
+          </div>
+          <div>
+            <span style={{
+              display: 'block',
+              color: 'rgba(228, 231, 235, 0.5)',
+              fontSize: '11px',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              marginBottom: '4px',
+              fontFamily: '"Roboto Mono", monospace'
+            }}>
+              Genre
+            </span>
+            <div style={{ color: '#e4e7eb', fontWeight: 600 }}>
+              {favorite.gender || 'N/A'}
+            </div>
+          </div>
+        </div>
+        {favorite.category && (
+          <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
+            <span style={{
+              display: 'block',
+              color: 'rgba(228, 231, 235, 0.5)',
+              fontSize: '11px',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              marginBottom: '4px',
+              fontFamily: '"Roboto Mono", monospace'
+            }}>
+              Catégorie
+            </span>
+            <div style={{ color: '#e4e7eb', fontWeight: 600 }}>
+              {favorite.category}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {favorite.productUrl && (
+        <a
+          href={favorite.productUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            width: '100%',
+            padding: '12px',
+            background: 'rgba(0, 184, 255, 0.1)',
+            color: '#00b8ff',
+            textDecoration: 'none',
+            borderRadius: '2px',
+            textAlign: 'center',
+            fontSize: '12px',
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '1px',
+            transition: 'all 0.2s',
+            border: '1px solid rgba(0, 184, 255, 0.3)',
+            fontFamily: '"Roboto Mono", monospace',
+            display: 'block'
+          }}
+          onMouseEnter={(e) => {
+            e.target.style.background = 'rgba(0, 184, 255, 0.2)';
+            e.target.style.transform = 'translateY(-2px)';
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.background = 'rgba(0, 184, 255, 0.1)';
+            e.target.style.transform = 'translateY(0)';
+          }}
+        >
+          VOIR SUR VINTED
+        </a>
+      )}
+    </div>
+  );
+};
 
 const VintedFavoritesApp = () => {
   // ========================================
@@ -275,6 +473,41 @@ const VintedFavoritesApp = () => {
     prixMoyen: favorites.length > 0
       ? (favorites.reduce((acc, f) => acc + (parseFloat(f.price) || 0), 0) / favorites.length).toFixed(2)
       : 0
+  };
+
+  // Configuration de la grille virtualisée
+  const gridConfig = useMemo(() => {
+    const CARD_WIDTH = 364; // 340px + 24px gap
+    const CARD_HEIGHT = 580; // hauteur approximative d'une carte
+    const containerWidth = window.innerWidth - (sidebarOpen ? 280 : 0) - 64; // sidebar + padding
+    const columnCount = Math.max(1, Math.floor(containerWidth / CARD_WIDTH));
+    const rowCount = Math.ceil(filteredFavorites.length / columnCount);
+
+    return {
+      columnCount,
+      rowCount,
+      columnWidth: Math.floor(containerWidth / columnCount),
+      rowHeight: CARD_HEIGHT,
+      width: containerWidth,
+      height: Math.min(window.innerHeight - 300, rowCount * CARD_HEIGHT) // Max height
+    };
+  }, [filteredFavorites.length, sidebarOpen]);
+
+  // Composant Cell pour la grille virtualisée
+  const Cell = ({ columnIndex, rowIndex, style }) => {
+    const index = rowIndex * gridConfig.columnCount + columnIndex;
+    if (index >= filteredFavorites.length) return null;
+
+    const favorite = filteredFavorites[index];
+
+    return (
+      <div style={{
+        ...style,
+        padding: '12px' // espacement entre les cartes
+      }}>
+        <FavoriteCard favorite={favorite} />
+      </div>
+    );
   };
 
   // ========================================
@@ -1085,7 +1318,7 @@ const VintedFavoritesApp = () => {
           </button>
         </div>
 
-        {/* Grille des favoris */}
+        {/* Grille des favoris (virtualisée pour performances) */}
         <div style={{ padding: '32px' }}>
           {filteredFavorites.length === 0 ? (
             <div style={{
@@ -1102,205 +1335,17 @@ const VintedFavoritesApp = () => {
               </p>
             </div>
           ) : (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
-              gap: '24px'
-            }}>
-              {filteredFavorites.map((favorite, index) => (
-                <div
-                  key={favorite.id}
-                  className="card-dark animate-in-left"
-                  style={{
-                    padding: '24px',
-                    animationDelay: `${index * 0.05}s`
-                  }}
-                >
-                  {/* Photo du favori */}
-                  {favorite.imageUrl && (
-                    <div style={{
-                      marginBottom: '16px',
-                      borderRadius: '4px',
-                      overflow: 'hidden',
-                      background: 'rgba(0, 0, 0, 0.3)'
-                    }}>
-                      <img
-                        src={favorite.imageUrl}
-                        alt={favorite.title}
-                        style={{
-                          width: '100%',
-                          height: '200px',
-                          objectFit: 'cover',
-                          display: 'block'
-                        }}
-                        onError={(e) => {
-                          e.target.style.display = 'none';
-                        }}
-                      />
-                    </div>
-                  )}
-                  <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'flex-start',
-                    marginBottom: '20px'
-                  }}>
-                    <h3 style={{
-                      fontSize: '18px',
-                      fontWeight: 700,
-                      color: '#e4e7eb',
-                      flex: 1,
-                      marginRight: '12px',
-                      fontFamily: '"Rajdhani", sans-serif',
-                      letterSpacing: '0.5px'
-                    }}>
-                      {favorite.title}
-                    </h3>
-                    <span className={favorite.sold ? 'badge-dark badge-sold-dark' : 'badge-dark badge-available-dark'}>
-                      {favorite.sold ? 'Vendu' : 'Dispo'}
-                    </span>
-                  </div>
-
-                  <div style={{
-                    marginBottom: '20px',
-                    padding: '16px',
-                    background: 'rgba(0, 0, 0, 0.2)',
-                    borderRadius: '2px',
-                    border: '1px solid rgba(255, 255, 255, 0.05)'
-                  }}>
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1fr 1fr',
-                      gap: '16px',
-                      fontSize: '13px'
-                    }}>
-                      <div>
-                        <span style={{
-                          display: 'block',
-                          color: 'rgba(228, 231, 235, 0.5)',
-                          fontSize: '11px',
-                          textTransform: 'uppercase',
-                          letterSpacing: '1px',
-                          marginBottom: '4px',
-                          fontFamily: '"Roboto Mono", monospace'
-                        }}>
-                          Marque
-                        </span>
-                        <div style={{ color: '#e4e7eb', fontWeight: 600 }}>
-                          {favorite.brand || 'N/A'}
-                        </div>
-                      </div>
-                      <div>
-                        <span style={{
-                          display: 'block',
-                          color: 'rgba(228, 231, 235, 0.5)',
-                          fontSize: '11px',
-                          textTransform: 'uppercase',
-                          letterSpacing: '1px',
-                          marginBottom: '4px',
-                          fontFamily: '"Roboto Mono", monospace'
-                        }}>
-                          Prix
-                        </span>
-                        <div style={{
-                          fontSize: '20px',
-                          fontWeight: 700,
-                          color: '#00ff9d',
-                          fontFamily: '"Rajdhani", sans-serif'
-                        }}>
-                          {favorite.price ? `${favorite.price}€` : 'N/A'}
-                        </div>
-                      </div>
-                      <div>
-                        <span style={{
-                          display: 'block',
-                          color: 'rgba(228, 231, 235, 0.5)',
-                          fontSize: '11px',
-                          textTransform: 'uppercase',
-                          letterSpacing: '1px',
-                          marginBottom: '4px',
-                          fontFamily: '"Roboto Mono", monospace'
-                        }}>
-                          Taille
-                        </span>
-                        <div style={{ color: '#e4e7eb', fontWeight: 600 }}>
-                          {favorite.size || 'N/A'}
-                        </div>
-                      </div>
-                      <div>
-                        <span style={{
-                          display: 'block',
-                          color: 'rgba(228, 231, 235, 0.5)',
-                          fontSize: '11px',
-                          textTransform: 'uppercase',
-                          letterSpacing: '1px',
-                          marginBottom: '4px',
-                          fontFamily: '"Roboto Mono", monospace'
-                        }}>
-                          Genre
-                        </span>
-                        <div style={{ color: '#e4e7eb', fontWeight: 600 }}>
-                          {favorite.gender || 'N/A'}
-                        </div>
-                      </div>
-                    </div>
-                    {favorite.category && (
-                      <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                        <span style={{
-                          display: 'block',
-                          color: 'rgba(228, 231, 235, 0.5)',
-                          fontSize: '11px',
-                          textTransform: 'uppercase',
-                          letterSpacing: '1px',
-                          marginBottom: '4px',
-                          fontFamily: '"Roboto Mono", monospace'
-                        }}>
-                          Catégorie
-                        </span>
-                        <div style={{ color: '#e4e7eb', fontWeight: 600 }}>
-                          {favorite.category}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {favorite.productUrl && (
-                    <a
-                      href={favorite.productUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        width: '100%',
-                        padding: '12px',
-                        background: 'rgba(0, 184, 255, 0.1)',
-                        color: '#00b8ff',
-                        textDecoration: 'none',
-                        borderRadius: '2px',
-                        textAlign: 'center',
-                        fontSize: '12px',
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                        letterSpacing: '1px',
-                        transition: 'all 0.2s',
-                        border: '1px solid rgba(0, 184, 255, 0.3)',
-                        fontFamily: '"Roboto Mono", monospace',
-                        display: 'block'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.target.style.background = 'rgba(0, 184, 255, 0.2)';
-                        e.target.style.transform = 'translateY(-2px)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.target.style.background = 'rgba(0, 184, 255, 0.1)';
-                        e.target.style.transform = 'translateY(0)';
-                      }}
-                    >
-                      VOIR SUR VINTED
-                    </a>
-                  )}
-                </div>
-              ))}
-            </div>
+            <VirtualGrid
+              columnCount={gridConfig.columnCount}
+              columnWidth={gridConfig.columnWidth}
+              height={gridConfig.height}
+              rowCount={gridConfig.rowCount}
+              rowHeight={gridConfig.rowHeight}
+              width={gridConfig.width}
+              style={{ margin: '0 auto' }}
+            >
+              {Cell}
+            </VirtualGrid>
           )}
         </div>
       </div>
