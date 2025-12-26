@@ -102,8 +102,23 @@ async function sendToApi(sessionData) {
 async function login(page) {
     console.log('Navigating to Vinted login page...');
 
-    // Go to Vinted
-    await page.goto(config.vintedUrl, { waitUntil: 'networkidle' });
+    // Go to Vinted with increased timeout and different wait condition
+    try {
+        await page.goto(config.vintedUrl, {
+            waitUntil: 'domcontentloaded',
+            timeout: 60000  // 60 seconds instead of 30
+        });
+        // Wait for page to stabilize
+        await page.waitForTimeout(3000);
+    } catch (error) {
+        console.error(`Failed to load Vinted homepage: ${error.message}`);
+        console.log('Trying alternative approach...');
+        // Try with even more lenient settings
+        await page.goto(config.vintedUrl, {
+            waitUntil: 'load',
+            timeout: 90000
+        });
+    }
 
     // Wait a bit for any popups/consent dialogs
     await page.waitForTimeout(2000);
@@ -293,14 +308,32 @@ async function refreshSession() {
         args: [
             '--disable-blink-features=AutomationControlled',
             '--no-sandbox',
-            '--disable-setuid-sandbox'
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu',
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins,site-per-process'
         ]
     });
 
     const context = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         viewport: { width: 1920, height: 1080 },
-        locale: 'fr-FR'
+        locale: 'fr-FR',
+        timezoneId: 'Europe/Paris',
+        extraHTTPHeaders: {
+            'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-User': '?1',
+            'Sec-Fetch-Dest': 'document',
+            'Upgrade-Insecure-Requests': '1'
+        }
     });
 
     const page = await context.newPage();

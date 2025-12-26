@@ -234,8 +234,17 @@ public class VintedApiService {
                 .uri(url)
                 .header(HttpHeaders.COOKIE, cookieHeader)
                 .header(HttpHeaders.USER_AGENT, userAgent)
-                .header(HttpHeaders.ACCEPT, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .header("Accept-Language", "fr-FR,fr;q=0.9")
+                .header(HttpHeaders.ACCEPT, "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+                .header(HttpHeaders.ACCEPT_LANGUAGE, "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7")
+                .header(HttpHeaders.ACCEPT_ENCODING, "gzip, deflate, br")
+                .header("Sec-Ch-Ua", "\"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"")
+                .header("Sec-Ch-Ua-Mobile", "?0")
+                .header("Sec-Ch-Ua-Platform", "\"Windows\"")
+                .header("Sec-Fetch-Dest", "document")
+                .header("Sec-Fetch-Mode", "navigate")
+                .header("Sec-Fetch-Site", "none")
+                .header("Sec-Fetch-User", "?1")
+                .header("Upgrade-Insecure-Requests", "1")
                 .exchangeToMono(response -> {
                     if (response.statusCode().is2xxSuccessful()) {
                         return response.bodyToMono(String.class);
@@ -327,9 +336,16 @@ public class VintedApiService {
                 .header(HttpHeaders.COOKIE, cookieHeader)
                 .header(HttpHeaders.USER_AGENT, userAgent)
                 .header(HttpHeaders.ACCEPT, "application/json, text/plain, */*")
-                .header("Accept-Language", "fr-FR,fr;q=0.9")
+                .header(HttpHeaders.ACCEPT_LANGUAGE, "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7")
+                .header(HttpHeaders.ACCEPT_ENCODING, "gzip, deflate, br")
                 .header(HttpHeaders.REFERER, "https://www.vinted.fr/")
-                .header(HttpHeaders.ORIGIN, "https://www.vinted.fr");
+                .header(HttpHeaders.ORIGIN, "https://www.vinted.fr")
+                .header("Sec-Ch-Ua", "\"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"")
+                .header("Sec-Ch-Ua-Mobile", "?0")
+                .header("Sec-Ch-Ua-Platform", "\"Windows\"")
+                .header("Sec-Fetch-Dest", "empty")
+                .header("Sec-Fetch-Mode", "cors")
+                .header("Sec-Fetch-Site", "same-origin");
 
         if (csrfToken != null && !csrfToken.isEmpty()) {
             requestSpec = requestSpec.header("X-Csrf-Token", csrfToken);
