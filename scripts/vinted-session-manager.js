@@ -222,10 +222,11 @@ async function login(page) {
     try {
         // Try to find and click "Se connecter" link (below the social login buttons)
         const loginLinkSelectors = [
+            '[data-testid="auth-select-type--register-switch"]',  // Sélecteur officiel trouvé dans le HTML
+            'span.web_ui__Text__underline:has-text("Se connecter")',
             'span:has-text("Se connecter")',
             'a:has-text("Se connecter")',
-            '[data-testid="auth-switch-to-login"]',
-            'button:has-text("Se connecter")'
+            '[data-testid="auth-switch-to-login"]'
         ];
 
         let loginLinkClicked = false;
