@@ -573,7 +573,7 @@ async function refreshSession() {
 
         // Navigate to favorites page to ensure we have all necessary cookies
         console.log('Navigating to favorites page...');
-        await page.goto(`${config.vintedUrl}/member/items/favourites`, { waitUntil: 'networkidle' });
+        await page.goto(`${config.vintedUrl}/member/items/favourite_list`, { waitUntil: 'networkidle' });
         await page.waitForTimeout(2000);
 
         // Extract session data
@@ -583,13 +583,27 @@ async function refreshSession() {
         console.log(`CSRF Token: ${sessionData.csrfToken ? 'Found' : 'Not found'}`);
         console.log(`Anon ID: ${sessionData.anonId ? 'Found' : 'Not found'}`);
 
-        // Send to API
-        const result = await sendToApi(sessionData);
+        console.log('\n========================================');
+        console.log('COOKIES EXTRAITS:');
+        console.log('========================================');
+        console.log(sessionData.rawCookies);
+        console.log('========================================\n');
 
-        if (result.success) {
-            console.log('Session refreshed successfully!');
-        } else {
-            console.error('Failed to update session in API');
+        // Send to API
+        try {
+            const result = await sendToApi(sessionData);
+            if (result.success) {
+                console.log('✅ Session refreshed successfully!');
+                console.log('Les cookies ont été envoyés au backend.');
+            } else {
+                console.error('⚠️  Failed to update session in API');
+                console.log('Copiez les cookies ci-dessus dans votre fichier .env');
+            }
+        } catch (error) {
+            console.error('⚠️  API non disponible:', error.message);
+            console.log('\nPas de problème ! Copiez les cookies ci-dessus.');
+            console.log('Ajoutez-les dans votre fichier .env:');
+            console.log('VINTED_COOKIES="<cookies ci-dessus>"');
         }
 
     } catch (error) {
