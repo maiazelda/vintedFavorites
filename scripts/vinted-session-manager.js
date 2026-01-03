@@ -206,13 +206,68 @@ async function login(page) {
     // Wait for the welcome popup to appear
     await page.waitForTimeout(2000);
 
-    // NEW STEP: Click on "e-mail" link in the welcome popup
-    console.log('Looking for email login option in welcome popup...');
+    // STEP 1.5: Click on "Se connecter" text link (not Google/Facebook)
+    console.log('Looking for "Se connecter" link in welcome popup...');
 
     if (config.debugMode) {
         console.log('\n========================================');
-        console.log('ÉTAPE 1.5: Clic sur "e-mail" dans la popup');
-        console.log('La popup "Bienvenue !" devrait être visible.');
+        console.log('ÉTAPE 1.5: Clic sur "Se connecter"');
+        console.log('La popup "Bienvenue !" affiche Google/Apple/Facebook.');
+        console.log('Le script va cliquer sur le lien "Se connecter" (texte).');
+        console.log('Pause de 10 secondes...');
+        console.log('========================================\n');
+        await page.waitForTimeout(10000);
+    }
+
+    try {
+        // Try to find and click "Se connecter" link (below the social login buttons)
+        const loginLinkSelectors = [
+            'span:has-text("Se connecter")',
+            'a:has-text("Se connecter")',
+            '[data-testid="auth-switch-to-login"]',
+            'button:has-text("Se connecter")'
+        ];
+
+        let loginLinkClicked = false;
+        for (const selector of loginLinkSelectors) {
+            try {
+                const link = await page.$(selector);
+                if (link && await link.isVisible()) {
+                    console.log(`✓ Lien "Se connecter" trouvé avec: ${selector}`);
+                    await link.click();
+                    loginLinkClicked = true;
+                    await page.waitForTimeout(1500);
+                    break;
+                }
+            } catch (e) {
+                if (config.debugMode) {
+                    console.log(`✗ Sélecteur ${selector} non trouvé`);
+                }
+            }
+        }
+
+        if (!loginLinkClicked) {
+            console.log('⚠️  Lien "Se connecter" non trouvé');
+            if (config.debugMode) {
+                console.log('Veuillez cliquer manuellement sur "Se connecter"');
+                console.log('Pause de 20 secondes...');
+                await page.waitForTimeout(20000);
+            }
+        }
+    } catch (e) {
+        console.log('Could not find "Se connecter" link');
+    }
+
+    // Wait for next popup to appear
+    await page.waitForTimeout(1500);
+
+    // STEP 1.7: Click on "e-mail" option
+    console.log('Looking for "e-mail" option...');
+
+    if (config.debugMode) {
+        console.log('\n========================================');
+        console.log('ÉTAPE 1.7: Clic sur "e-mail" dans la popup');
+        console.log('La popup de connexion devrait maintenant afficher les options.');
         console.log('Le script va cliquer sur le lien "e-mail".');
         console.log('Pause de 10 secondes...');
         console.log('========================================\n');
@@ -262,14 +317,13 @@ async function login(page) {
     // Wait for login form to appear
     await page.waitForTimeout(2000);
 
-    // Look for email/password fields
-    console.log('Filling login form...');
+    // STEP 2: Fill email and password
+    console.log('Filling login form (email + password)...');
 
     if (config.debugMode) {
         console.log('\n========================================');
         console.log('ÉTAPE 2: Remplissage du formulaire');
-        console.log('Le script va essayer de remplir email et mot de passe.');
-        console.log('Si cela échoue, vous pouvez le faire manuellement.');
+        console.log('Formulaire avec email ET mot de passe.');
         console.log('Pause de 10 secondes...');
         console.log('========================================\n');
         await page.waitForTimeout(10000);
@@ -323,8 +377,11 @@ async function login(page) {
         }
     }
 
-    // Wait a bit before password
+    // Wait a bit before filling password
     await page.waitForTimeout(500);
+
+    // Fill password field (same form)
+    console.log('Filling password field...');
 
     // Try to find and fill password field
     const passwordSelectors = [
@@ -371,14 +428,13 @@ async function login(page) {
         }
     }
 
-    // Submit the form
+    // Submit the login form
     console.log('Submitting login form...');
 
     if (config.debugMode) {
         console.log('\n========================================');
         console.log('ÉTAPE 3: Soumission du formulaire');
-        console.log('Le script va cliquer sur "Continuer".');
-        console.log('Si cela échoue, vous pouvez le faire manuellement.');
+        console.log('Le script va cliquer sur le bouton de connexion.');
         console.log('Pause de 10 secondes...');
         console.log('========================================\n');
         await page.waitForTimeout(10000);
