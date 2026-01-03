@@ -115,16 +115,41 @@ public class VintedSyncController {
 
     /**
      * Synchronise les favoris depuis Vinted
+     * Si la session est expirée et que les credentials sont configurés,
+     * lance automatiquement un refresh via Playwright avant de synchroniser
      */
     @PostMapping("/sync")
     public Mono<ResponseEntity<SyncResponse>> syncFavorites() {
         log.info("Démarrage de la synchronisation des favoris");
 
-        if (!vintedApiService.isSessionValid()) {
-            return Mono.just(ResponseEntity.badRequest()
-                    .body(new SyncResponse(false, "Cookies non configurés ou session expirée", 0, 0)));
+        // Si session invalide mais credentials configurés -> auto-refresh
+        if (!vintedApiService.isSessionValid() && sessionService.hasCredentials()) {
+            log.info("Session expirée - lancement automatique du refresh Playwright...");
+
+            return Mono.fromFuture(sessionService.refreshSession())
+                    .flatMap(success -> {
+                        if (success) {
+                            log.info("Refresh réussi - lancement de la synchronisation...");
+                            return syncFavoritesInternal();
+                        } else {
+                            log.error("Échec du refresh automatique");
+                            return Mono.just(ResponseEntity.badRequest()
+                                    .body(new SyncResponse(false, "Échec du rafraîchissement automatique de la session", 0, 0)));
+                        }
+                    });
         }
 
+        // Si session invalide et pas de credentials -> erreur
+        if (!vintedApiService.isSessionValid()) {
+            return Mono.just(ResponseEntity.badRequest()
+                    .body(new SyncResponse(false, "Session expirée - configurez vos identifiants avec POST /api/vinted/credentials", 0, 0)));
+        }
+
+        // Session valide -> sync directement
+        return syncFavoritesInternal();
+    }
+
+    private Mono<ResponseEntity<SyncResponse>> syncFavoritesInternal() {
         return vintedApiService.syncAllFavorites()
                 .map(newCount -> {
                     int totalCount = favoriteService.getAllFavorites().size();
@@ -140,7 +165,7 @@ public class VintedSyncController {
                     log.error("Erreur lors de la synchronisation: {}", e.getMessage());
                     String errorMessage = e.getMessage();
                     if (errorMessage.contains("Session expirée")) {
-                        errorMessage = "Session expirée - veuillez mettre à jour les cookies";
+                        errorMessage = "Session expirée - une nouvelle tentative de refresh sera effectuée";
                     }
                     return Mono.just(ResponseEntity.badRequest()
                             .body(new SyncResponse(false, errorMessage, 0, 0)));
