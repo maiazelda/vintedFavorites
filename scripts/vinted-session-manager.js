@@ -222,10 +222,10 @@ async function login(page) {
     try {
         // Try to find and click the email login link in the welcome popup
         const emailLinkSelectors = [
+            '[data-testid="auth-select-type--login-email"]',  // Sélecteur officiel trouvé dans le HTML
+            'span[data-testid="auth-select-type--login-email"]',
             'a:has-text("e-mail")',
-            'a[href*="email"]',
             'button:has-text("e-mail")',
-            '[data-testid="email-login"]',
             'a:has-text("mail")'
         ];
 
