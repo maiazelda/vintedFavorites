@@ -236,7 +236,7 @@ public class VintedApiService {
                 .header(HttpHeaders.USER_AGENT, userAgent)
                 .header(HttpHeaders.ACCEPT, "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
                 .header(HttpHeaders.ACCEPT_LANGUAGE, "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7")
-                .header(HttpHeaders.ACCEPT_ENCODING, "gzip, deflate, br")
+                .header(HttpHeaders.ACCEPT_ENCODING, "gzip, deflate")  // Pas de brotli car non supporté par Reactor Netty
                 .header("Sec-Ch-Ua", "\"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"")
                 .header("Sec-Ch-Ua-Mobile", "?0")
                 .header("Sec-Ch-Ua-Platform", "\"Windows\"")
@@ -337,7 +337,7 @@ public class VintedApiService {
                 .header(HttpHeaders.USER_AGENT, userAgent)
                 .header(HttpHeaders.ACCEPT, "application/json, text/plain, */*")
                 .header(HttpHeaders.ACCEPT_LANGUAGE, "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7")
-                .header(HttpHeaders.ACCEPT_ENCODING, "gzip, deflate, br")
+                .header(HttpHeaders.ACCEPT_ENCODING, "gzip, deflate")  // Pas de brotli car non supporté par Reactor Netty
                 .header(HttpHeaders.REFERER, "https://www.vinted.fr/")
                 .header(HttpHeaders.ORIGIN, "https://www.vinted.fr")
                 .header("Sec-Ch-Ua", "\"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"")
@@ -360,8 +360,16 @@ public class VintedApiService {
     private Mono<String> handleResponse(ClientResponse response) {
         response.headers().header(HttpHeaders.SET_COOKIE).forEach(cookieService::updateCookiesFromResponse);
 
+        // Log Content-Encoding pour debug
+        String contentEncoding = response.headers().header("Content-Encoding").stream().findFirst().orElse("none");
+        log.info("Response Content-Encoding: {}", contentEncoding);
+
         if (response.statusCode().is2xxSuccessful()) {
-            return response.bodyToMono(String.class);
+            return response.bodyToMono(String.class)
+                    .doOnNext(body -> {
+                        log.info("Response body length: {} chars", body.length());
+                        log.info("Response body preview: {}", body.substring(0, Math.min(200, body.length())));
+                    });
         } else if (response.statusCode().value() == 401 || response.statusCode().value() == 403) {
             return response.bodyToMono(String.class)
                     .defaultIfEmpty("")
