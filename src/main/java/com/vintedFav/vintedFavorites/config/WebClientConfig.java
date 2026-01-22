@@ -34,7 +34,8 @@ public class WebClientConfig {
                 .doOnConnected(conn -> conn
                         .addHandlerLast(new ReadTimeoutHandler(timeout, TimeUnit.MILLISECONDS))
                         .addHandlerLast(new WriteTimeoutHandler(timeout, TimeUnit.MILLISECONDS)))
-                .followRedirect(true);
+                .followRedirect(true)
+                .compress(true);  // Active la décompression automatique gzip/deflate/brotli
 
         return WebClient.builder()
                 .baseUrl(baseUrl)
