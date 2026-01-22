@@ -12,14 +12,16 @@ const FavoriteCard = ({ favorite }) => {
     <div
       className="card-dark"
       style={{
-        padding: '24px',
-        height: '100%'
+        padding: '12px',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column'
       }}
     >
       {/* Photo du favori */}
       {favorite.imageUrl && (
         <div style={{
-          marginBottom: '16px',
+          marginBottom: '10px',
           borderRadius: '4px',
           overflow: 'hidden',
           background: 'rgba(0, 0, 0, 0.3)'
@@ -30,7 +32,7 @@ const FavoriteCard = ({ favorite }) => {
             loading="lazy"
             style={{
               width: '100%',
-              height: '200px',
+              height: '140px',
               objectFit: 'cover',
               display: 'block'
             }}
@@ -44,50 +46,58 @@ const FavoriteCard = ({ favorite }) => {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'flex-start',
-        marginBottom: '20px'
+        marginBottom: '8px'
       }}>
         <h3 style={{
-          fontSize: '18px',
+          fontSize: '13px',
           fontWeight: 700,
           color: '#e4e7eb',
           flex: 1,
-          marginRight: '12px',
+          marginRight: '8px',
           fontFamily: '"Rajdhani", sans-serif',
-          letterSpacing: '0.5px'
+          letterSpacing: '0.5px',
+          lineHeight: '1.2',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical'
         }}>
           {favorite.title}
         </h3>
-        <span className={favorite.sold ? 'badge-dark badge-sold-dark' : 'badge-dark badge-available-dark'}>
+        <span className={favorite.sold ? 'badge-dark badge-sold-dark' : 'badge-dark badge-available-dark'}
+          style={{ fontSize: '9px', padding: '3px 6px' }}>
           {favorite.sold ? 'Vendu' : 'Dispo'}
         </span>
       </div>
 
       <div style={{
-        marginBottom: '20px',
-        padding: '16px',
+        marginBottom: '10px',
+        padding: '8px',
         background: 'rgba(0, 0, 0, 0.2)',
         borderRadius: '2px',
-        border: '1px solid rgba(255, 255, 255, 0.05)'
+        border: '1px solid rgba(255, 255, 255, 0.05)',
+        flex: 1
       }}>
         <div style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
-          gap: '16px',
-          fontSize: '13px'
+          gap: '6px',
+          fontSize: '11px'
         }}>
           <div>
             <span style={{
               display: 'block',
               color: 'rgba(228, 231, 235, 0.5)',
-              fontSize: '11px',
+              fontSize: '9px',
               textTransform: 'uppercase',
-              letterSpacing: '1px',
-              marginBottom: '4px',
+              letterSpacing: '0.5px',
+              marginBottom: '2px',
               fontFamily: '"Roboto Mono", monospace'
             }}>
               Marque
             </span>
-            <div style={{ color: '#e4e7eb', fontWeight: 600 }}>
+            <div style={{ color: '#e4e7eb', fontWeight: 600, fontSize: '11px' }}>
               {favorite.brand || 'N/A'}
             </div>
           </div>
@@ -95,16 +105,16 @@ const FavoriteCard = ({ favorite }) => {
             <span style={{
               display: 'block',
               color: 'rgba(228, 231, 235, 0.5)',
-              fontSize: '11px',
+              fontSize: '9px',
               textTransform: 'uppercase',
-              letterSpacing: '1px',
-              marginBottom: '4px',
+              letterSpacing: '0.5px',
+              marginBottom: '2px',
               fontFamily: '"Roboto Mono", monospace'
             }}>
               Prix
             </span>
             <div style={{
-              fontSize: '20px',
+              fontSize: '16px',
               fontWeight: 700,
               color: '#00ff9d',
               fontFamily: '"Rajdhani", sans-serif'
@@ -116,15 +126,15 @@ const FavoriteCard = ({ favorite }) => {
             <span style={{
               display: 'block',
               color: 'rgba(228, 231, 235, 0.5)',
-              fontSize: '11px',
+              fontSize: '9px',
               textTransform: 'uppercase',
-              letterSpacing: '1px',
-              marginBottom: '4px',
+              letterSpacing: '0.5px',
+              marginBottom: '2px',
               fontFamily: '"Roboto Mono", monospace'
             }}>
               Taille
             </span>
-            <div style={{ color: '#e4e7eb', fontWeight: 600 }}>
+            <div style={{ color: '#e4e7eb', fontWeight: 600, fontSize: '11px' }}>
               {favorite.size || 'N/A'}
             </div>
           </div>
@@ -132,37 +142,19 @@ const FavoriteCard = ({ favorite }) => {
             <span style={{
               display: 'block',
               color: 'rgba(228, 231, 235, 0.5)',
-              fontSize: '11px',
+              fontSize: '9px',
               textTransform: 'uppercase',
-              letterSpacing: '1px',
-              marginBottom: '4px',
+              letterSpacing: '0.5px',
+              marginBottom: '2px',
               fontFamily: '"Roboto Mono", monospace'
             }}>
               Genre
             </span>
-            <div style={{ color: '#e4e7eb', fontWeight: 600 }}>
+            <div style={{ color: '#e4e7eb', fontWeight: 600, fontSize: '11px' }}>
               {favorite.gender || 'N/A'}
             </div>
           </div>
         </div>
-        {favorite.category && (
-          <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
-            <span style={{
-              display: 'block',
-              color: 'rgba(228, 231, 235, 0.5)',
-              fontSize: '11px',
-              textTransform: 'uppercase',
-              letterSpacing: '1px',
-              marginBottom: '4px',
-              fontFamily: '"Roboto Mono", monospace'
-            }}>
-              Catégorie
-            </span>
-            <div style={{ color: '#e4e7eb', fontWeight: 600 }}>
-              {favorite.category}
-            </div>
-          </div>
-        )}
       </div>
 
       {favorite.productUrl && (
@@ -172,16 +164,16 @@ const FavoriteCard = ({ favorite }) => {
           rel="noopener noreferrer"
           style={{
             width: '100%',
-            padding: '12px',
+            padding: '8px',
             background: 'rgba(0, 184, 255, 0.1)',
             color: '#00b8ff',
             textDecoration: 'none',
             borderRadius: '2px',
             textAlign: 'center',
-            fontSize: '12px',
+            fontSize: '10px',
             fontWeight: 700,
             textTransform: 'uppercase',
-            letterSpacing: '1px',
+            letterSpacing: '0.5px',
             transition: 'all 0.2s',
             border: '1px solid rgba(0, 184, 255, 0.3)',
             fontFamily: '"Roboto Mono", monospace',
@@ -475,21 +467,22 @@ const VintedFavoritesApp = () => {
       : 0
   };
 
-  // Configuration de la grille virtualisée
+  // Configuration de la grille virtualisée - 4 colonnes x 3 lignes visibles
   const gridConfig = useMemo(() => {
-    const CARD_WIDTH = 364; // 340px + 24px gap
-    const CARD_HEIGHT = 580; // hauteur approximative d'une carte
+    const COLUMN_COUNT = 4; // Forcer 4 colonnes
+    const ROW_COUNT_VISIBLE = 3; // 3 lignes visibles
+    const CARD_HEIGHT = 420; // Hauteur réduite des cartes
     const containerWidth = window.innerWidth - (sidebarOpen ? 280 : 0) - 64; // sidebar + padding
-    const columnCount = Math.max(1, Math.floor(containerWidth / CARD_WIDTH));
-    const rowCount = Math.ceil(filteredFavorites.length / columnCount);
+    const columnWidth = Math.floor(containerWidth / COLUMN_COUNT);
+    const rowCount = Math.ceil(filteredFavorites.length / COLUMN_COUNT);
 
     return {
-      columnCount,
+      columnCount: COLUMN_COUNT,
       rowCount,
-      columnWidth: Math.floor(containerWidth / columnCount),
+      columnWidth,
       rowHeight: CARD_HEIGHT,
       width: containerWidth,
-      height: Math.min(window.innerHeight - 300, rowCount * CARD_HEIGHT) // Max height
+      height: ROW_COUNT_VISIBLE * CARD_HEIGHT // Afficher exactement 3 lignes
     };
   }, [filteredFavorites.length, sidebarOpen]);
 
