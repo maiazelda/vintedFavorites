@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vinted Favorites Sync</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- En-tête -->
+    <header>
+      <h1>🛍️ Vinted Favorites</h1>
+    </header>
+
+    <!-- Zone de statut -->
+    <div id="status" class="status">
+      <span id="status-icon">⏳</span>
+      <span id="status-text">Vérification...</span>
+    </div>
+
+    <!-- Configuration du serveur -->
+    <div class="config-section">
+      <label for="server-url">URL de ton serveur :</label>
+      <input
+        type="url"
+        id="server-url"
+        placeholder="https://ton-app.railway.app"
+      >
+      <button id="save-config" class="btn-secondary">Sauvegarder</button>
+    </div>
+
+    <!-- Bouton principal -->
+    <button id="sync-btn" class="btn-primary" disabled>
+      <span id="sync-icon">🔄</span>
+      <span id="sync-text">Synchroniser</span>
+    </button>
+
+    <!-- Résultat -->
+    <div id="result" class="result hidden">
+      <span id="result-text"></span>
+    </div>
+
+    <!-- Lien vers l'app -->
+    <a id="open-app" href="#" target="_blank" class="link hidden">
+      Ouvrir l'application →
+    </a>
+
+    <!-- Footer -->
+    <footer>
+      <small>Connecte-toi d'abord sur vinted.fr</small>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
