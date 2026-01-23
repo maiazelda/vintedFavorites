@@ -25,7 +25,7 @@ const VINTED_API_BASE = 'https://www.vinted.fr/api/v2';
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'syncFavorites') {
     // On doit retourner true pour indiquer qu'on répond de manière asynchrone
-    handleSyncFavorites(message.serverUrl)
+    handleSyncFavorites(message.serverUrl, message.apiKey)
       .then(sendResponse)
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true; // Important: indique une réponse asynchrone
@@ -39,8 +39,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 /**
  * Fonction principale de synchronisation
  * @param {string} serverUrl - URL du backend
+ * @param {string} apiKey - Clé API pour l'authentification
  */
-async function handleSyncFavorites(serverUrl) {
+async function handleSyncFavorites(serverUrl, apiKey) {
   console.log('🚀 Début synchronisation vers:', serverUrl);
 
   try {
@@ -57,7 +58,7 @@ async function handleSyncFavorites(serverUrl) {
     console.log('❤️ Favoris récupérés:', favorites.length);
 
     // Étape 4: Envoyer au backend
-    await sendToBackend(serverUrl, favorites, cookies);
+    await sendToBackend(serverUrl, apiKey, favorites, cookies);
     console.log('✅ Envoyé au backend');
 
     return { success: true, count: favorites.length };
@@ -203,8 +204,12 @@ function formatFavorite(item) {
 
 /**
  * Envoie les favoris au serveur backend
+ * @param {string} serverUrl - URL du backend
+ * @param {string} apiKey - Clé API pour l'authentification
+ * @param {Array} favorites - Liste des favoris
+ * @param {Array} cookies - Cookies Vinted
  */
-async function sendToBackend(serverUrl, favorites, cookies) {
+async function sendToBackend(serverUrl, apiKey, favorites, cookies) {
   // Normalise l'URL
   const baseUrl = serverUrl.replace(/\/$/, '');
 
@@ -224,6 +229,7 @@ async function sendToBackend(serverUrl, favorites, cookies) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'X-API-Key': apiKey
     },
     body: JSON.stringify(payload)
   });

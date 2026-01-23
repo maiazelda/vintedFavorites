@@ -50,9 +50,17 @@ C'est le "cerveau" de l'extension qui fait le vrai travail :
 1. Va sur [vinted.fr](https://www.vinted.fr) et connecte-toi
 2. Clique sur l'icône de l'extension 🧩
 3. Entre l'URL de ton serveur (ex: `https://mon-app.railway.app`)
-4. Clique "Sauvegarder"
-5. Clique "Synchroniser"
-6. Tes favoris sont envoyés à ton serveur !
+4. Entre la **clé API** (la même que `APP_SECURITY_API_KEY` sur ton serveur)
+5. Clique "Sauvegarder"
+6. Clique "Synchroniser"
+7. Tes favoris sont envoyés à ton serveur !
+
+## Sécurité
+
+L'extension utilise une **clé API** pour s'authentifier auprès du backend.
+Cette clé doit correspondre à la variable `APP_SECURITY_API_KEY` configurée sur le serveur.
+
+L'extension envoie cette clé dans le header HTTP : `X-API-Key: <ta-clé>`
 
 ## Permissions expliquées
 

@@ -15,6 +15,7 @@ const elements = {
   statusIcon: document.getElementById('status-icon'),
   statusText: document.getElementById('status-text'),
   serverUrl: document.getElementById('server-url'),
+  apiKey: document.getElementById('api-key'),
   saveConfig: document.getElementById('save-config'),
   syncBtn: document.getElementById('sync-btn'),
   syncIcon: document.getElementById('sync-icon'),
@@ -33,11 +34,14 @@ const VINTED_DOMAIN = 'www.vinted.fr';
  * Charge la configuration sauvegardée
  */
 async function loadConfig() {
-  const { serverUrl } = await chrome.storage.local.get('serverUrl');
+  const { serverUrl, apiKey } = await chrome.storage.local.get(['serverUrl', 'apiKey']);
   if (serverUrl) {
     elements.serverUrl.value = serverUrl;
     elements.openApp.href = serverUrl;
     elements.openApp.classList.remove('hidden');
+  }
+  if (apiKey) {
+    elements.apiKey.value = apiKey;
   }
 }
 
@@ -46,14 +50,20 @@ async function loadConfig() {
  */
 async function saveConfig() {
   const serverUrl = elements.serverUrl.value.trim();
+  const apiKey = elements.apiKey.value.trim();
+
   if (!serverUrl) {
     showResult('Veuillez entrer une URL', 'error');
+    return;
+  }
+  if (!apiKey) {
+    showResult('Veuillez entrer la clé API', 'error');
     return;
   }
 
   try {
     new URL(serverUrl); // Valide l'URL
-    await chrome.storage.local.set({ serverUrl });
+    await chrome.storage.local.set({ serverUrl, apiKey });
     elements.openApp.href = serverUrl;
     elements.openApp.classList.remove('hidden');
     showResult('Configuration sauvegardée !', 'success');
@@ -119,8 +129,14 @@ function setStatus(state, icon, text) {
  */
 async function startSync() {
   const serverUrl = elements.serverUrl.value.trim();
+  const apiKey = elements.apiKey.value.trim();
+
   if (!serverUrl) {
     showResult('Configure d\'abord l\'URL du serveur', 'error');
+    return;
+  }
+  if (!apiKey) {
+    showResult('Configure d\'abord la clé API', 'error');
     return;
   }
 
@@ -134,7 +150,8 @@ async function startSync() {
     // Envoie le message au service worker (background.js)
     const response = await chrome.runtime.sendMessage({
       action: 'syncFavorites',
-      serverUrl: serverUrl
+      serverUrl: serverUrl,
+      apiKey: apiKey
     });
 
     if (response.success) {
