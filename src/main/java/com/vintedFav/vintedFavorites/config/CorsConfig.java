@@ -18,28 +18,32 @@ public class CorsConfig {
 
     @Bean
     public CorsFilter corsFilter() {
-        CorsConfiguration config = new CorsConfiguration();
-        config.setAllowCredentials(true);
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
 
-        // Parse allowed origins from property
+        // Config pour le frontend (avec credentials)
+        CorsConfiguration frontendConfig = new CorsConfiguration();
+        frontendConfig.setAllowCredentials(true);
         List<String> origins = Arrays.asList(allowedOrigins.split(","));
-        config.setAllowedOrigins(origins);
-
-        // Allow all common headers
-        config.addAllowedHeader("*");
-
-        // Allow all HTTP methods
-        config.addAllowedMethod("*");
-
-        // Expose headers that might be useful for the frontend
-        config.setExposedHeaders(Arrays.asList(
+        frontendConfig.setAllowedOrigins(origins);
+        frontendConfig.addAllowedHeader("*");
+        frontendConfig.addAllowedMethod("*");
+        frontendConfig.setExposedHeaders(Arrays.asList(
             "Authorization",
             "Content-Type",
             "X-Total-Count"
         ));
 
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
+        // Config pour l'extension Chrome (sans credentials, toutes origines)
+        // Les extensions ont une origine "chrome-extension://[id]"
+        CorsConfiguration extensionConfig = new CorsConfiguration();
+        extensionConfig.setAllowCredentials(false);
+        extensionConfig.addAllowedOriginPattern("*"); // Permet toutes les origines
+        extensionConfig.addAllowedHeader("*");
+        extensionConfig.addAllowedMethod("*");
+
+        // Appliquer les configs aux paths
+        source.registerCorsConfiguration("/api/extension/**", extensionConfig);
+        source.registerCorsConfiguration("/**", frontendConfig);
 
         return new CorsFilter(source);
     }
